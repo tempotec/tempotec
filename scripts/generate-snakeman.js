@@ -114,40 +114,64 @@ function buildSnakePath(points, startPoint) {
   let d = `M ${route[0].x} ${route[0].y}`;
 
   for (let i = 1; i < route.length; i++) {
-    const previous = route[i - 1];
-    const current = route[i];
+    const previous =
+      route[i - 1];
 
-    const dx = current.x - previous.x;
-    const dy = current.y - previous.y;
+    const current =
+      route[i];
+
+    const dx =
+      current.x - previous.x;
+
+    const dy =
+      current.y - previous.y;
 
     /*
-      Alternamos a curvatura para o braço
-      serpentear de verdade.
+      Curva curta e controlada.
+
+      Quanto menor o deslocamento entre
+      quadrados, menor a curva.
+
+      Isso evita o visual de
+      eletrocardiograma.
+    */
+    const curve =
+      Math.min(
+        7,
+        Math.max(
+          2,
+          Math.abs(dx) * 0.08
+        )
+      );
+
+    /*
+      Pequena alternância para manter
+      a sensação de Snake-Man,
+      sem criar ondas gigantes.
     */
     const direction =
       i % 2 === 0 ? 1 : -1;
 
-    const wave =
-      Math.min(
-        24,
-        Math.max(
-          8,
-          Math.abs(dx) * 0.35 +
-            Math.abs(dy) * 0.15
-        )
-      ) * direction;
+    const offset =
+      curve * direction;
 
     const control1X =
-      previous.x + dx * 0.35;
+      previous.x +
+      dx * 0.4;
 
     const control1Y =
-      previous.y + wave;
+      previous.y +
+      dy * 0.25 +
+      offset;
 
     const control2X =
-      previous.x + dx * 0.65;
+      previous.x +
+      dx * 0.7;
 
     const control2Y =
-      current.y - wave;
+      previous.y +
+      dy * 0.75 -
+      offset;
 
     d += `
       C
