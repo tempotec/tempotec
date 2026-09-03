@@ -103,11 +103,17 @@ async function main() {
   const gap = 3;
   const step = cell + gap;
 
-  const gridX = 245;
-  const gridY = 78;
+  /*
+    Mais espaço à esquerda para o Luffy.
+  */
+  const gridX = 330;
+  const gridY = 82;
 
-  const width = 1050;
-  const height = 285;
+  /*
+    Canvas maior para ocupar melhor o README.
+  */
+  const width = 1200;
+  const height = 320;
 
   const levelColors = {
     NONE: "#161b22",
@@ -171,16 +177,36 @@ async function main() {
 >
 
   <defs>
-    <filter id="redGlow" x="-50%" y="-50%" width="200%" height="200%">
-      <feGaussianBlur stdDeviation="4" result="blur"/>
+    <filter
+      id="redGlow"
+      x="-50%"
+      y="-50%"
+      width="200%"
+      height="200%"
+    >
+      <feGaussianBlur
+        stdDeviation="4"
+        result="blur"
+      />
+
       <feMerge>
         <feMergeNode in="blur"/>
         <feMergeNode in="SourceGraphic"/>
       </feMerge>
     </filter>
 
-    <filter id="greenGlow" x="-100%" y="-100%" width="300%" height="300%">
-      <feGaussianBlur stdDeviation="4" result="blur"/>
+    <filter
+      id="greenGlow"
+      x="-100%"
+      y="-100%"
+      width="300%"
+      height="300%"
+    >
+      <feGaussianBlur
+        stdDeviation="4"
+        result="blur"
+      />
+
       <feMerge>
         <feMergeNode in="blur"/>
         <feMergeNode in="SourceGraphic"/>
@@ -188,13 +214,26 @@ async function main() {
     </filter>
 
     <radialGradient id="impact">
-      <stop offset="0%" stop-color="#ffffff"/>
-      <stop offset="35%" stop-color="#ff1744"/>
-      <stop offset="100%" stop-color="#ff1744" stop-opacity="0"/>
+      <stop
+        offset="0%"
+        stop-color="#ffffff"
+      />
+
+      <stop
+        offset="35%"
+        stop-color="#ff1744"
+      />
+
+      <stop
+        offset="100%"
+        stop-color="#ff1744"
+        stop-opacity="0"
+      />
     </radialGradient>
   </defs>
 
   <!-- FUNDO -->
+
   <rect
     width="100%"
     height="100%"
@@ -203,8 +242,9 @@ async function main() {
   />
 
   <!-- TITULO -->
+
   <text
-    x="245"
+    x="330"
     y="35"
     fill="#f0f6fc"
     font-family="monospace"
@@ -215,7 +255,7 @@ async function main() {
   </text>
 
   <text
-    x="245"
+    x="330"
     y="55"
     fill="#8b949e"
     font-family="monospace"
@@ -225,11 +265,13 @@ async function main() {
   </text>
 
   <!-- GRID -->
+
   <g>
     ${cells.join("\n")}
   </g>
 
   <!-- CAMINHO DO BRAÇO -->
+
   <polyline
     points="${pathPoints}"
     fill="none"
@@ -259,21 +301,24 @@ async function main() {
     />
   </polyline>
 
-  <!-- LUFFY -->
+  <!-- LUFFY GEAR 4 SNAKE-MAN -->
+
   <image
     href="data:image/png;base64,${luffyBase64}"
-    x="8"
-    y="45"
-    width="225"
-    height="225"
+    x="10"
+    y="35"
+    width="310"
+    height="260"
     preserveAspectRatio="xMidYMid meet"
   />
 
   <!-- PUNHO / IMPACTO -->
+
   ${
     activePoints.length
       ? `
   <g filter="url(#redGlow)">
+
     <circle
       r="13"
       fill="#090909"
@@ -293,12 +338,14 @@ async function main() {
         .map((p) => `${p.x} ${p.y}`)
         .join(" L ")}"
     />
+
   </g>
   `
       : ""
   }
 
-  <!-- EXPLOSÃO VERDE -->
+  <!-- EXPLOSÃO -->
+
   ${
     activePoints.length
       ? `
@@ -307,6 +354,7 @@ async function main() {
     fill="url(#impact)"
     opacity="0"
   >
+
     <animateMotion
       dur="14s"
       repeatCount="indefinite"
@@ -328,15 +376,17 @@ async function main() {
       dur="0.35s"
       repeatCount="indefinite"
     />
+
   </circle>
   `
       : ""
   }
 
   <!-- TEXTO INFERIOR -->
+
   <text
-    x="245"
-    y="235"
+    x="330"
+    y="260"
     fill="#39d353"
     font-family="monospace"
     font-size="13"
@@ -345,8 +395,8 @@ async function main() {
   </text>
 
   <text
-    x="245"
-    y="260"
+    x="330"
+    y="285"
     fill="#8b949e"
     font-family="monospace"
     font-size="11"
@@ -357,12 +407,26 @@ async function main() {
 </svg>
 `;
 
-  fs.mkdirSync(OUTPUT_DIR, { recursive: true });
-  fs.writeFileSync(OUTPUT_FILE, svg);
+  fs.mkdirSync(OUTPUT_DIR, {
+    recursive: true,
+  });
 
-  console.log(`SVG criado: ${OUTPUT_FILE}`);
-  console.log(`Contribuições: ${total}`);
-  console.log(`Quadrados ativos: ${activePoints.length}`);
+  fs.writeFileSync(
+    OUTPUT_FILE,
+    svg
+  );
+
+  console.log(
+    `SVG criado: ${OUTPUT_FILE}`
+  );
+
+  console.log(
+    `Contribuições: ${total}`
+  );
+
+  console.log(
+    `Quadrados ativos: ${activePoints.length}`
+  );
 }
 
 main().catch((error) => {
