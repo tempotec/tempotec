@@ -24,7 +24,7 @@ if (!TOKEN) {
 }
 
 /* =========================================================
-   GITHUB GRAPHQL
+   GITHUB
 ========================================================= */
 
 function graphqlRequest(query) {
@@ -36,7 +36,6 @@ function graphqlRequest(query) {
         hostname: "api.github.com",
         path: "/graphql",
         method: "POST",
-
         headers: {
           Authorization: `Bearer ${TOKEN}`,
           "User-Agent": "tempotec-snakeman-animation",
@@ -44,7 +43,6 @@ function graphqlRequest(query) {
           "Content-Length": Buffer.byteLength(body),
         },
       },
-
       (res) => {
         let data = "";
 
@@ -84,7 +82,7 @@ function graphqlRequest(query) {
 }
 
 /* =========================================================
-   UTILS
+   HELPERS
 ========================================================= */
 
 function escapeXml(value) {
@@ -97,43 +95,38 @@ function escapeXml(value) {
 }
 
 /*
-  Cria uma rota de varredura.
+  Rota:
 
-  Linha 1:
-  Luffy -------------------->
+  LUFFY ━━━━━━━━━━━━━━━━━━━👊
+                             ╮
+  👊━━━━━━━━━━━━━━━━━━━━━━━━━╯
+  ╰━━━━━━━━━━━━━━━━━━━━━━━━━👊
+                             ╮
+  👊━━━━━━━━━━━━━━━━━━━━━━━━━╯
 
-                            ╮
-                            │
-
-  Linha 2:
-         <------------------╯
-
-  Linha 3:
-         ╰------------------>
-
-  Isso cria um movimento realmente
-  serpentino sem aquele efeito de ECG.
+  O braço permanece conectado ao Luffy.
 */
 
-function buildScanPath({
+function buildSnakePath({
+  armOrigin,
   startX,
   endX,
   topY,
   rows,
   rowStep,
-  armOrigin,
 }) {
   let d =
     `M ${armOrigin.x} ${armOrigin.y}`;
 
   /*
-    Entrada suave no grid.
+    Saída inicial do braço.
+    Faz uma curva até o primeiro quadrado.
   */
 
   d += `
     C
-    ${armOrigin.x + 25} ${armOrigin.y},
-    ${startX - 30} ${topY},
+    ${armOrigin.x + 35} ${armOrigin.y - 5},
+    ${startX - 35} ${topY},
     ${startX} ${topY}
   `;
 
@@ -144,39 +137,39 @@ function buildScanPath({
     const goingRight =
       row % 2 === 0;
 
-    const targetX =
+    const destinationX =
       goingRight
         ? endX
         : startX;
 
     /*
-      Varredura horizontal.
+      Braço atravessa a linha.
     */
 
     d += `
       L
-      ${targetX}
+      ${destinationX}
       ${y}
     `;
 
     /*
-      Curva para a próxima linha.
+      Curva Snake-Man na lateral.
     */
 
     if (row < rows - 1) {
       const nextY =
         y + rowStep;
 
-      const curveX =
+      const outsideX =
         goingRight
-          ? endX + 18
-          : startX - 18;
+          ? endX + 24
+          : startX - 24;
 
       d += `
         C
-        ${curveX} ${y},
-        ${curveX} ${nextY},
-        ${targetX} ${nextY}
+        ${outsideX} ${y},
+        ${outsideX} ${nextY},
+        ${destinationX} ${nextY}
       `;
     }
   }
@@ -185,12 +178,8 @@ function buildScanPath({
 }
 
 /*
-  Ordem usada para saber em que momento
-  cada quadrado é atingido.
-
-  linha 0 -> esquerda para direita
-  linha 1 -> direita para esquerda
-  linha 2 -> esquerda para direita
+  Calcula em qual momento cada célula
+  é alcançada pela varredura.
 */
 
 function getSnakeOrder(
@@ -257,9 +246,7 @@ async function main() {
 
   const cell = 11;
   const gap = 3;
-
-  const step =
-    cell + gap;
+  const step = cell + gap;
 
   const gridX = 330;
   const gridY = 82;
@@ -277,10 +264,6 @@ async function main() {
   const gridEndX =
     gridX + gridWidth;
 
-  /*
-    Centro das células.
-  */
-
   const scanStartX =
     gridX + cell / 2;
 
@@ -291,35 +274,34 @@ async function main() {
     gridY + cell / 2;
 
   /*
-    Ponto de saída do braço no sprite.
+    Ajuste fino:
+    ponto onde visualmente o braço
+    sai do sprite do Luffy.
   */
 
   const armOrigin = {
-    x: 292,
-    y: 164,
+    x: 287,
+    y: 158,
   };
 
   /*
-    Duração total da animação.
+    0%   -> braço recolhido
+    75%  -> terminou a varredura
+    86%  -> pausa
+    100% -> voltou para o Luffy
   */
 
-  const animationDuration = 16;
+  const animationDuration = 18;
+
+  const travelEnd = 0.75;
+  const holdEnd = 0.86;
 
   const levelColors = {
-    NONE:
-      "#161b22",
-
-    FIRST_QUARTILE:
-      "#0e4429",
-
-    SECOND_QUARTILE:
-      "#006d32",
-
-    THIRD_QUARTILE:
-      "#26a641",
-
-    FOURTH_QUARTILE:
-      "#39d353",
+    NONE: "#161b22",
+    FIRST_QUARTILE: "#0e4429",
+    SECOND_QUARTILE: "#006d32",
+    THIRD_QUARTILE: "#26a641",
+    FOURTH_QUARTILE: "#39d353",
   };
 
   const luffyBase64 =
@@ -328,7 +310,7 @@ async function main() {
       .toString("base64");
 
   /* =======================================================
-     GRID
+     CONTRIBUIÇÕES
   ======================================================= */
 
   const cells = [];
@@ -361,12 +343,8 @@ async function main() {
             ] ||
             levelColors.NONE;
 
-          const id =
-            `cell-${weekIndex}-${day.weekday}`;
-
           cells.push(`
             <rect
-              id="${id}"
               x="${x}"
               y="${y}"
               width="${cell}"
@@ -379,8 +357,8 @@ async function main() {
           `);
 
           /*
-            Só os quadrados com atividade
-            recebem o efeito de impacto.
+            Só explode se realmente houve
+            contribuição naquele dia.
           */
 
           if (
@@ -400,40 +378,32 @@ async function main() {
                 totalScanSlots - 1
               );
 
-            /*
-              O braço usa aproximadamente
-              82% do ciclo para atravessar
-              o grid.
-
-              Guardamos o restante para
-              pausa/recolhimento.
-            */
-
             const impactTime =
-              normalized * 0.82;
+              normalized *
+              travelEnd;
 
             const before =
               Math.max(
                 0,
-                impactTime - 0.012
+                impactTime - 0.009
               );
 
             const after =
               Math.min(
                 1,
-                impactTime + 0.018
+                impactTime + 0.014
               );
 
             hitEffects.push(`
-              <!-- impacto ${day.date} -->
+              <!-- HIT: ${day.date} -->
 
               <rect
-                x="${x - 2}"
-                y="${y - 2}"
-                width="${cell + 4}"
-                height="${cell + 4}"
-                rx="3"
-                fill="#b6ff5c"
+                x="${x - 3}"
+                y="${y - 3}"
+                width="${cell + 6}"
+                height="${cell + 6}"
+                rx="4"
+                fill="#8cff66"
                 opacity="0"
                 filter="url(#greenGlow)"
               >
@@ -452,7 +422,7 @@ async function main() {
               <circle
                 cx="${centerX}"
                 cy="${centerY}"
-                r="4"
+                r="3"
                 fill="#ffffff"
                 opacity="0"
                 filter="url(#impactGlow)"
@@ -460,7 +430,7 @@ async function main() {
 
                 <animate
                   attributeName="opacity"
-                  values="0;0;0.95;0;0"
+                  values="0;0;1;0;0"
                   keyTimes="0;${before};${impactTime};${after};1"
                   dur="${animationDuration}s"
                   repeatCount="indefinite"
@@ -468,7 +438,7 @@ async function main() {
 
                 <animate
                   attributeName="r"
-                  values="4;4;16;4;4"
+                  values="3;3;18;5;3"
                   keyTimes="0;${before};${impactTime};${after};1"
                   dur="${animationDuration}s"
                   repeatCount="indefinite"
@@ -483,11 +453,13 @@ async function main() {
   );
 
   /* =======================================================
-     ROTA DO SNAKE-MAN
+     CAMINHO
   ======================================================= */
 
   const snakePath =
-    buildScanPath({
+    buildSnakePath({
+      armOrigin,
+
       startX:
         scanStartX,
 
@@ -502,8 +474,6 @@ async function main() {
 
       rowStep:
         step,
-
-      armOrigin,
     });
 
   /* =======================================================
@@ -521,7 +491,9 @@ async function main() {
 
   <defs>
 
-    <!-- HAKI -->
+    <!-- =============================
+         HAKI GLOW
+    ============================== -->
 
     <filter
       id="redGlow"
@@ -537,51 +509,16 @@ async function main() {
       />
 
       <feMerge>
-
-        <feMergeNode
-          in="blur"
-        />
-
-        <feMergeNode
-          in="SourceGraphic"
-        />
-
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
       </feMerge>
 
     </filter>
 
 
-    <!-- VERDE DAS CONTRIBUIÇÕES -->
-
-    <filter
-      id="greenGlow"
-      x="-200%"
-      y="-200%"
-      width="500%"
-      height="500%"
-    >
-
-      <feGaussianBlur
-        stdDeviation="5"
-        result="blur"
-      />
-
-      <feMerge>
-
-        <feMergeNode
-          in="blur"
-        />
-
-        <feMergeNode
-          in="SourceGraphic"
-        />
-
-      </feMerge>
-
-    </filter>
-
-
-    <!-- IMPACTO -->
+    <!-- =============================
+         IMPACT
+    ============================== -->
 
     <filter
       id="impactGlow"
@@ -597,21 +534,35 @@ async function main() {
       />
 
       <feMerge>
-
-        <feMergeNode
-          in="blur"
-        />
-
-        <feMergeNode
-          in="SourceGraphic"
-        />
-
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
       </feMerge>
 
     </filter>
 
 
-    <radialGradient id="impactGradient">
+    <filter
+      id="greenGlow"
+      x="-300%"
+      y="-300%"
+      width="700%"
+      height="700%"
+    >
+
+      <feGaussianBlur
+        stdDeviation="5"
+        result="blur"
+      />
+
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+
+    </filter>
+
+
+    <radialGradient id="fistAura">
 
       <stop
         offset="0%"
@@ -619,12 +570,12 @@ async function main() {
       />
 
       <stop
-        offset="25%"
-        stop-color="#ff8bb5"
+        offset="20%"
+        stop-color="#ff9abd"
       />
 
       <stop
-        offset="55%"
+        offset="50%"
         stop-color="#ff1744"
       />
 
@@ -640,7 +591,7 @@ async function main() {
 
 
   <!-- ===================================================
-       FUNDO
+       BACKGROUND
   ==================================================== -->
 
   <rect
@@ -652,7 +603,7 @@ async function main() {
 
 
   <!-- ===================================================
-       TITULO
+       HEADER
   ==================================================== -->
 
   <text
@@ -679,7 +630,7 @@ async function main() {
 
 
   <!-- ===================================================
-       CONTRIBUIÇÕES
+       CONTRIBUTION GRID
   ==================================================== -->
 
   <g id="contribution-grid">
@@ -690,7 +641,7 @@ async function main() {
 
 
   <!-- ===================================================
-       IMPACTOS NOS QUADRADOS
+       HIT EFFECTS
   ==================================================== -->
 
   <g>
@@ -701,34 +652,46 @@ async function main() {
 
 
   <!-- ===================================================
-       BRAÇO SNAKE-MAN
+       SNAKE-MAN ARM
 
-       O caminho inteiro existe,
-       mas apenas um trecho pequeno
-       aparece atrás do punho.
+       IMPORTANTE:
+
+       stroke-dasharray começa zerado.
+
+       Ele cresce DO LUFFY ATÉ O PUNHO.
+
+       Depois recolhe de volta.
   ==================================================== -->
 
 
-  <!-- AURA -->
+  <!-- AURA EXTERNA -->
 
   <path
     d="${snakePath}"
     fill="none"
     stroke="#ff1744"
-    stroke-width="24"
+    stroke-width="30"
     stroke-linecap="round"
     stroke-linejoin="round"
-    opacity="0.18"
+    opacity="0.16"
     filter="url(#redGlow)"
     pathLength="1"
-    stroke-dasharray="0.10 0.90"
-    stroke-dashoffset="0.10"
   >
 
     <animate
-      attributeName="stroke-dashoffset"
-      values="0.10;-0.72;-0.72;0.10"
-      keyTimes="0;0.82;0.92;1"
+      attributeName="stroke-dasharray"
+      values="
+        0 1;
+        1 0;
+        1 0;
+        0 1
+      "
+      keyTimes="
+        0;
+        ${travelEnd};
+        ${holdEnd};
+        1
+      "
       dur="${animationDuration}s"
       repeatCount="indefinite"
     />
@@ -736,24 +699,66 @@ async function main() {
   </path>
 
 
-  <!-- CORPO PRETO -->
+  <!-- BORDA MAGENTA -->
 
   <path
     d="${snakePath}"
     fill="none"
-    stroke="#07080b"
-    stroke-width="15"
+    stroke="#ff1744"
+    stroke-width="20"
     stroke-linecap="round"
     stroke-linejoin="round"
+    filter="url(#redGlow)"
     pathLength="1"
-    stroke-dasharray="0.10 0.90"
-    stroke-dashoffset="0.10"
   >
 
     <animate
-      attributeName="stroke-dashoffset"
-      values="0.10;-0.72;-0.72;0.10"
-      keyTimes="0;0.82;0.92;1"
+      attributeName="stroke-dasharray"
+      values="
+        0 1;
+        1 0;
+        1 0;
+        0 1
+      "
+      keyTimes="
+        0;
+        ${travelEnd};
+        ${holdEnd};
+        1
+      "
+      dur="${animationDuration}s"
+      repeatCount="indefinite"
+    />
+
+  </path>
+
+
+  <!-- CORPO DO BRAÇO -->
+
+  <path
+    d="${snakePath}"
+    fill="none"
+    stroke="#050609"
+    stroke-width="14"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+    pathLength="1"
+  >
+
+    <animate
+      attributeName="stroke-dasharray"
+      values="
+        0 1;
+        1 0;
+        1 0;
+        0 1
+      "
+      keyTimes="
+        0;
+        ${travelEnd};
+        ${holdEnd};
+        1
+      "
       dur="${animationDuration}s"
       repeatCount="indefinite"
     />
@@ -766,20 +771,28 @@ async function main() {
   <path
     d="${snakePath}"
     fill="none"
-    stroke="#ff1744"
-    stroke-width="6"
+    stroke="#e91e63"
+    stroke-width="5"
     stroke-linecap="round"
     stroke-linejoin="round"
     filter="url(#redGlow)"
     pathLength="1"
-    stroke-dasharray="0.10 0.90"
-    stroke-dashoffset="0.10"
   >
 
     <animate
-      attributeName="stroke-dashoffset"
-      values="0.10;-0.72;-0.72;0.10"
-      keyTimes="0;0.82;0.92;1"
+      attributeName="stroke-dasharray"
+      values="
+        0 1;
+        1 0;
+        1 0;
+        0 1
+      "
+      keyTimes="
+        0;
+        ${travelEnd};
+        ${holdEnd};
+        1
+      "
       dur="${animationDuration}s"
       repeatCount="indefinite"
     />
@@ -792,20 +805,28 @@ async function main() {
   <path
     d="${snakePath}"
     fill="none"
-    stroke="#ff91bc"
+    stroke="#ff98bf"
     stroke-width="2"
     stroke-linecap="round"
     stroke-linejoin="round"
-    opacity="0.95"
+    opacity="0.85"
     pathLength="1"
-    stroke-dasharray="0.10 0.90"
-    stroke-dashoffset="0.10"
   >
 
     <animate
-      attributeName="stroke-dashoffset"
-      values="0.10;-0.72;-0.72;0.10"
-      keyTimes="0;0.82;0.92;1"
+      attributeName="stroke-dasharray"
+      values="
+        0 1;
+        1 0;
+        1 0;
+        0 1
+      "
+      keyTimes="
+        0;
+        ${travelEnd};
+        ${holdEnd};
+        1
+      "
       dur="${animationDuration}s"
       repeatCount="indefinite"
     />
@@ -815,6 +836,9 @@ async function main() {
 
   <!-- ===================================================
        LUFFY
+
+       Vem depois do braço propositalmente
+       para esconder a origem da linha.
   ==================================================== -->
 
   <image
@@ -828,64 +852,74 @@ async function main() {
 
 
   <!-- ===================================================
-       PUNHO
+       ANIMATED FIST
   ==================================================== -->
 
-  <g
-    filter="url(#redGlow)"
-  >
+  <g filter="url(#redGlow)">
 
     <!-- aura -->
 
     <circle
-      r="22"
+      r="24"
       fill="#ff1744"
       opacity="0.22"
     />
 
 
-    <!-- punho -->
+    <!-- palma -->
 
-    <circle
-      r="15"
+    <path
+      d="
+        M -14 -6
+        Q -12 -16 -5 -12
+        Q -1 -19 4 -12
+        Q 10 -17 12 -9
+        Q 18 -11 17 -3
+        L 16 7
+        Q 10 17 -1 17
+        Q -12 17 -17 8
+        Q -20 0 -14 -6
+        Z
+      "
       fill="#050609"
       stroke="#ff1744"
-      stroke-width="5"
+      stroke-width="4"
     />
 
 
-    <!-- dedos estilizados -->
+    <!-- dedos -->
 
     <path
       d="
         M -9 -5
-        Q -5 -12 0 -6
-        Q 4 -13 8 -5
-        Q 13 -8 13 -1
-        L 12 7
-        Q 6 14 -2 12
-        Q -11 11 -13 3
-        Z
+        Q -7 -11 -3 -7
+
+        M -2 -8
+        Q 0 -14 4 -8
+
+        M 5 -8
+        Q 8 -13 10 -6
       "
-      fill="#09090d"
-      stroke="#ff315f"
-      stroke-width="2"
+      fill="none"
+      stroke="#ff6f9f"
+      stroke-width="2.2"
+      stroke-linecap="round"
     />
 
 
     <!-- brilho -->
 
-    <circle
-      cx="4"
-      cy="-5"
-      r="3"
+    <ellipse
+      cx="6"
+      cy="-8"
+      rx="4"
+      ry="2.5"
       fill="#ff9abd"
     />
 
-
     <circle
-      cx="5"
-      cy="-6"
+      cx="7"
+      cy="-9"
       r="1.2"
       fill="#ffffff"
     />
@@ -896,7 +930,7 @@ async function main() {
       repeatCount="indefinite"
       path="${snakePath}"
       keyPoints="0;1;1;0"
-      keyTimes="0;0.82;0.92;1"
+      keyTimes="0;${travelEnd};${holdEnd};1"
       calcMode="linear"
     />
 
@@ -904,13 +938,13 @@ async function main() {
 
 
   <!-- ===================================================
-       AURA DE IMPACTO NO PUNHO
+       PUNCH AURA
   ==================================================== -->
 
   <circle
-    r="25"
-    fill="url(#impactGradient)"
-    opacity="0.45"
+    r="28"
+    fill="url(#fistAura)"
+    opacity="0.28"
     filter="url(#impactGlow)"
   >
 
@@ -919,23 +953,23 @@ async function main() {
       repeatCount="indefinite"
       path="${snakePath}"
       keyPoints="0;1;1;0"
-      keyTimes="0;0.82;0.92;1"
+      keyTimes="0;${travelEnd};${holdEnd};1"
       calcMode="linear"
     />
 
 
     <animate
       attributeName="r"
-      values="15;24;18;28;15"
-      dur="0.40s"
+      values="20;30;22;34;20"
+      dur="0.42s"
       repeatCount="indefinite"
     />
 
 
     <animate
       attributeName="opacity"
-      values="0.15;0.65;0.20;0.75;0.15"
-      dur="0.40s"
+      values="0.18;0.55;0.22;0.65;0.18"
+      dur="0.42s"
       repeatCount="indefinite"
     />
 
@@ -943,7 +977,7 @@ async function main() {
 
 
   <!-- ===================================================
-       TEXTO
+       FOOTER
   ==================================================== -->
 
   <text
@@ -999,7 +1033,7 @@ async function main() {
   );
 
   console.log(
-    `Impactos ativos: ${hitEffects.length}`
+    `Impactos animados: ${hitEffects.length}`
   );
 }
 
