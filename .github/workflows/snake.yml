@@ -1,4 +1,4 @@
-name: Generate Snake
+name: Generate Snake-Man Contributions
 
 on:
   schedule:
@@ -14,18 +14,23 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Generate snake animation
-        uses: Platane/snk/svg-only@v3
-        with:
-          github_user_name: tempotec
-          outputs: |
-            dist/github-contribution-grid-snake.svg
-            dist/github-contribution-grid-snake-dark.svg?palette=github-dark
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
-      - name: Push snake to output branch
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Generate Snake-Man animation
+        run: node scripts/generate-snakeman.js
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Publish Snake-Man to output branch
         uses: crazy-max/ghaction-github-pages@v4
         with:
           build_dir: dist
-          branch: output
+          target_branch: output
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
