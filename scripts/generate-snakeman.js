@@ -6,8 +6,16 @@ const USERNAME = "tempotec";
 const TOKEN = process.env.GITHUB_TOKEN;
 
 const OUTPUT_DIR = path.join(process.cwd(), "dist");
-const OUTPUT_FILE = path.join(OUTPUT_DIR, "snakeman-contributions.svg");
-const LUFFY_FILE = path.join(process.cwd(), "assets", "luffy-snakeman.png");
+const OUTPUT_FILE = path.join(
+  OUTPUT_DIR,
+  "snakeman-contributions.svg"
+);
+
+const LUFFY_FILE = path.join(
+  process.cwd(),
+  "assets",
+  "luffy-snakeman.png"
+);
 
 if (!TOKEN) {
   console.error("GITHUB_TOKEN não encontrado.");
@@ -23,6 +31,7 @@ function graphqlRequest(query) {
         hostname: "api.github.com",
         path: "/graphql",
         method: "POST",
+
         headers: {
           Authorization: `Bearer ${TOKEN}`,
           "User-Agent": "tempotec-snakeman-animation",
@@ -30,6 +39,7 @@ function graphqlRequest(query) {
           "Content-Length": Buffer.byteLength(body),
         },
       },
+
       (res) => {
         let data = "";
 
@@ -43,7 +53,13 @@ function graphqlRequest(query) {
 
             if (parsed.errors) {
               console.error(parsed.errors);
-              reject(new Error("Erro na API GraphQL do GitHub."));
+
+              reject(
+                new Error(
+                  "Erro na API GraphQL do GitHub."
+                )
+              );
+
               return;
             }
 
@@ -56,6 +72,7 @@ function graphqlRequest(query) {
     );
 
     req.on("error", reject);
+
     req.write(body);
     req.end();
   });
@@ -70,6 +87,79 @@ function escapeXml(value) {
     .replace(/'/g, "&apos;");
 }
 
+/*
+  Constrói um caminho curvo.
+
+  Em vez de:
+
+  --------/\----\/-----
+
+  teremos algo mais parecido com:
+
+  ~~~~~~~╲____╱~~~~~~~
+
+  As curvas Bézier deixam o ataque
+  mais parecido com o Snake-Man.
+*/
+function buildSnakePath(points, startPoint) {
+  if (!points.length) {
+    return `M ${startPoint.x} ${startPoint.y}`;
+  }
+
+  const route = [
+    startPoint,
+    ...points,
+  ];
+
+  let d = `M ${route[0].x} ${route[0].y}`;
+
+  for (let i = 1; i < route.length; i++) {
+    const previous = route[i - 1];
+    const current = route[i];
+
+    const dx = current.x - previous.x;
+    const dy = current.y - previous.y;
+
+    /*
+      Alternamos a curvatura para o braço
+      serpentear de verdade.
+    */
+    const direction =
+      i % 2 === 0 ? 1 : -1;
+
+    const wave =
+      Math.min(
+        24,
+        Math.max(
+          8,
+          Math.abs(dx) * 0.35 +
+            Math.abs(dy) * 0.15
+        )
+      ) * direction;
+
+    const control1X =
+      previous.x + dx * 0.35;
+
+    const control1Y =
+      previous.y + wave;
+
+    const control2X =
+      previous.x + dx * 0.65;
+
+    const control2Y =
+      current.y - wave;
+
+    d += `
+      C
+      ${control1X} ${control1Y},
+      ${control2X} ${control2Y},
+      ${current.x} ${current.y}
+    `;
+  }
+
+  return d;
+}
+
 async function main() {
   const query = `
     query {
@@ -77,6 +167,7 @@ async function main() {
         contributionsCollection {
           contributionCalendar {
             totalContributions
+
             weeks {
               contributionDays {
                 contributionCount
@@ -91,81 +182,183 @@ async function main() {
     }
   `;
 
-  const result = await graphqlRequest(query);
+  const result =
+    await graphqlRequest(query);
 
   const calendar =
-    result.data.user.contributionsCollection.contributionCalendar;
+    result.data.user
+      .contributionsCollection
+      .contributionCalendar;
 
   const weeks = calendar.weeks;
-  const total = calendar.totalContributions;
+  const total =
+    calendar.totalContributions;
+
+  /*
+    GRID
+  */
 
   const cell = 11;
   const gap = 3;
   const step = cell + gap;
 
-  /*
-    Mais espaço à esquerda para o Luffy.
-  */
   const gridX = 330;
   const gridY = 82;
 
   /*
-    Canvas maior para ocupar melhor o README.
+    CANVAS
   */
+
   const width = 1200;
   const height = 320;
 
   const levelColors = {
     NONE: "#161b22",
-    FIRST_QUARTILE: "#0e4429",
-    SECOND_QUARTILE: "#006d32",
-    THIRD_QUARTILE: "#26a641",
-    FOURTH_QUARTILE: "#39d353",
+
+    FIRST_QUARTILE:
+      "#0e4429",
+
+    SECOND_QUARTILE:
+      "#006d32",
+
+    THIRD_QUARTILE:
+      "#26a641",
+
+    FOURTH_QUARTILE:
+      "#39d353",
   };
 
-  const luffyBase64 = fs.readFileSync(LUFFY_FILE).toString("base64");
+  const luffyBase64 =
+    fs
+      .readFileSync(LUFFY_FILE)
+      .toString("base64");
 
   const cells = [];
-  const activePoints = [];
-
-  weeks.forEach((week, weekIndex) => {
-    week.contributionDays.forEach((day) => {
-      const x = gridX + weekIndex * step;
-      const y = gridY + day.weekday * step;
-
-      const color =
-        levelColors[day.contributionLevel] || levelColors.NONE;
-
-      cells.push(`
-        <rect
-          x="${x}"
-          y="${y}"
-          width="${cell}"
-          height="${cell}"
-          rx="2"
-          fill="${color}"
-        >
-          <title>${escapeXml(day.date)}: ${day.contributionCount} contribuições</title>
-        </rect>
-      `);
-
-      if (day.contributionCount > 0) {
-        activePoints.push({
-          x: x + cell / 2,
-          y: y + cell / 2,
-          date: day.date,
-        });
-      }
-    });
-  });
 
   /*
-    O Snakeman percorre os quadrados com contribuição.
-    A ordem segue o calendário do GitHub.
+    Guardamos os pontos separados
+    por semana.
+
+    Isso permite montar o trajeto:
+
+    semana 1 ↓
+    semana 2 ↑
+    semana 3 ↓
+    semana 4 ↑
+
+    criando um caminho serpentino.
   */
-  const pathPoints = activePoints
-    .map((point) => `${point.x},${point.y}`)
-    .join(" ");
+
+  const pointsByWeek = [];
+
+  weeks.forEach(
+    (week, weekIndex) => {
+      const weekPoints = [];
+
+      week.contributionDays.forEach(
+        (day) => {
+          const x =
+            gridX +
+            weekIndex * step;
+
+          const y =
+            gridY +
+            day.weekday * step;
+
+          const color =
+            levelColors[
+              day.contributionLevel
+            ] || levelColors.NONE;
+
+          cells.push(`
+            <rect
+              x="${x}"
+              y="${y}"
+              width="${cell}"
+              height="${cell}"
+              rx="2"
+              fill="${color}"
+            >
+              <title>
+                ${escapeXml(day.date)}:
+                ${day.contributionCount}
+                contribuições
+              </title>
+            </rect>
+          `);
+
+          if (
+            day.contributionCount > 0
+          ) {
+            weekPoints.push({
+              x:
+                x +
+                cell / 2,
+
+              y:
+                y +
+                cell / 2,
+
+              date:
+                day.date,
+
+              count:
+                day.contributionCount,
+            });
+          }
+        }
+      );
+
+      pointsByWeek.push(
+        weekPoints
+      );
+    }
+  );
+
+  /*
+    SNAKE ROUTE
+
+    A ordem alternada evita aquele
+    zig-zag agressivo que parecia
+    gráfico financeiro.
+  */
+
+  const attackPoints = [];
+
+  pointsByWeek.forEach(
+    (weekPoints, index) => {
+      if (!weekPoints.length) {
+        return;
+      }
+
+      const ordered =
+        index % 2 === 0
+          ? [...weekPoints]
+          : [...weekPoints].reverse();
+
+      attackPoints.push(
+        ...ordered
+      );
+    }
+  );
+
+  /*
+    Ponto onde o braço "nasce".
+
+    Fica próximo do punho direito
+    do sprite.
+  */
+
+  const armOrigin = {
+    x: 285,
+    y: 165,
+  };
+
+  const snakePath =
+    buildSnakePath(
+      attackPoints,
+      armOrigin
+    );
 
   const svg = `
 <svg
@@ -177,50 +370,83 @@ async function main() {
 >
 
   <defs>
+
+    <!-- BRILHO DO HAKI -->
+
     <filter
       id="redGlow"
-      x="-50%"
-      y="-50%"
-      width="200%"
-      height="200%"
-    >
-      <feGaussianBlur
-        stdDeviation="4"
-        result="blur"
-      />
-
-      <feMerge>
-        <feMergeNode in="blur"/>
-        <feMergeNode in="SourceGraphic"/>
-      </feMerge>
-    </filter>
-
-    <filter
-      id="greenGlow"
       x="-100%"
       y="-100%"
       width="300%"
       height="300%"
     >
+
       <feGaussianBlur
-        stdDeviation="4"
+        stdDeviation="5"
         result="blur"
       />
 
       <feMerge>
-        <feMergeNode in="blur"/>
-        <feMergeNode in="SourceGraphic"/>
+
+        <feMergeNode
+          in="blur"
+        />
+
+        <feMergeNode
+          in="SourceGraphic"
+        />
+
       </feMerge>
+
     </filter>
 
+
+    <!-- BRILHO FORTE -->
+
+    <filter
+      id="impactGlow"
+      x="-200%"
+      y="-200%"
+      width="500%"
+      height="500%"
+    >
+
+      <feGaussianBlur
+        stdDeviation="8"
+        result="blur"
+      />
+
+      <feMerge>
+
+        <feMergeNode
+          in="blur"
+        />
+
+        <feMergeNode
+          in="SourceGraphic"
+        />
+
+      </feMerge>
+
+    </filter>
+
+
+    <!-- IMPACTO -->
+
     <radialGradient id="impact">
+
       <stop
         offset="0%"
         stop-color="#ffffff"
       />
 
       <stop
-        offset="35%"
+        offset="20%"
+        stop-color="#ff87b7"
+      />
+
+      <stop
+        offset="45%"
         stop-color="#ff1744"
       />
 
@@ -229,10 +455,15 @@ async function main() {
         stop-color="#ff1744"
         stop-opacity="0"
       />
+
     </radialGradient>
+
   </defs>
 
+
+  <!-- ====================================== -->
   <!-- FUNDO -->
+  <!-- ====================================== -->
 
   <rect
     width="100%"
@@ -241,7 +472,10 @@ async function main() {
     fill="#0d1117"
   />
 
+
+  <!-- ====================================== -->
   <!-- TITULO -->
+  <!-- ====================================== -->
 
   <text
     x="330"
@@ -254,6 +488,7 @@ async function main() {
     TEMPOTEC
   </text>
 
+
   <text
     x="330"
     y="55"
@@ -264,44 +499,129 @@ async function main() {
     ${total} contributions • Gear 4 Snake-Man
   </text>
 
-  <!-- GRID -->
 
-  <g>
+  <!-- ====================================== -->
+  <!-- GRID DE CONTRIBUIÇÕES -->
+  <!-- ====================================== -->
+
+  <g id="contribution-grid">
+
     ${cells.join("\n")}
+
   </g>
 
-  <!-- CAMINHO DO BRAÇO -->
 
-  <polyline
-    points="${pathPoints}"
+  <!-- ====================================== -->
+  <!-- BRAÇO SNAKE-MAN -->
+  <!-- ====================================== -->
+
+  <!-- aura vermelha -->
+
+  <path
+    d="${snakePath}"
     fill="none"
     stroke="#ff1744"
-    stroke-width="7"
+    stroke-width="22"
     stroke-linecap="round"
     stroke-linejoin="round"
-    opacity="0.22"
+    opacity="0.20"
     filter="url(#redGlow)"
-  />
-
-  <polyline
-    points="${pathPoints}"
-    fill="none"
-    stroke="#111111"
-    stroke-width="4"
-    stroke-linecap="round"
-    stroke-linejoin="round"
-    stroke-dasharray="1 10000"
-    filter="url(#redGlow)"
+    pathLength="1"
+    stroke-dasharray="1"
+    stroke-dashoffset="1"
   >
+
     <animate
-      attributeName="stroke-dasharray"
-      values="1 10000;10000 0"
+      attributeName="stroke-dashoffset"
+      values="1;0;0;1"
+      keyTimes="0;0.80;0.94;1"
       dur="14s"
       repeatCount="indefinite"
     />
-  </polyline>
 
-  <!-- LUFFY GEAR 4 SNAKE-MAN -->
+  </path>
+
+
+  <!-- corpo preto do braço -->
+
+  <path
+    d="${snakePath}"
+    fill="none"
+    stroke="#08090c"
+    stroke-width="14"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+    pathLength="1"
+    stroke-dasharray="1"
+    stroke-dashoffset="1"
+  >
+
+    <animate
+      attributeName="stroke-dashoffset"
+      values="1;0;0;1"
+      keyTimes="0;0.80;0.94;1"
+      dur="14s"
+      repeatCount="indefinite"
+    />
+
+  </path>
+
+
+  <!-- acabamento vermelho do Haki -->
+
+  <path
+    d="${snakePath}"
+    fill="none"
+    stroke="#ff1744"
+    stroke-width="5"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+    filter="url(#redGlow)"
+    pathLength="1"
+    stroke-dasharray="1"
+    stroke-dashoffset="1"
+  >
+
+    <animate
+      attributeName="stroke-dashoffset"
+      values="1;0;0;1"
+      keyTimes="0;0.80;0.94;1"
+      dur="14s"
+      repeatCount="indefinite"
+    />
+
+  </path>
+
+
+  <!-- highlight magenta -->
+
+  <path
+    d="${snakePath}"
+    fill="none"
+    stroke="#ff70a6"
+    stroke-width="2"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+    opacity="0.85"
+    pathLength="1"
+    stroke-dasharray="1"
+    stroke-dashoffset="1"
+  >
+
+    <animate
+      attributeName="stroke-dashoffset"
+      values="1;0;0;1"
+      keyTimes="0;0.80;0.94;1"
+      dur="14s"
+      repeatCount="indefinite"
+    />
+
+  </path>
+
+
+  <!-- ====================================== -->
+  <!-- LUFFY -->
+  <!-- ====================================== -->
 
   <image
     href="data:image/png;base64,${luffyBase64}"
@@ -312,77 +632,128 @@ async function main() {
     preserveAspectRatio="xMidYMid meet"
   />
 
-  <!-- PUNHO / IMPACTO -->
+
+  <!-- ====================================== -->
+  <!-- PUNHO ANIMADO -->
+  <!-- ====================================== -->
 
   ${
-    activePoints.length
+    attackPoints.length
       ? `
-  <g filter="url(#redGlow)">
+
+  <g
+    filter="url(#redGlow)"
+  >
+
+    <!-- aura -->
 
     <circle
-      r="13"
-      fill="#090909"
-      stroke="#ff1744"
-      stroke-width="4"
+      r="19"
+      fill="#ff1744"
+      opacity="0.25"
     />
 
+
+    <!-- punho abstrato -->
+
     <circle
-      r="4"
+      r="14"
+      fill="#08090c"
+      stroke="#ff1744"
+      stroke-width="5"
+    />
+
+
+    <!-- reflexo -->
+
+    <circle
+      r="5"
+      fill="#ff8fbd"
+    />
+
+
+    <circle
+      r="2"
       fill="#ffffff"
     />
+
 
     <animateMotion
       dur="14s"
       repeatCount="indefinite"
-      path="M ${activePoints
-        .map((p) => `${p.x} ${p.y}`)
-        .join(" L ")}"
+      path="${snakePath}"
+      keyPoints="0;1;1;0"
+      keyTimes="0;0.80;0.94;1"
+      calcMode="linear"
     />
 
   </g>
+
   `
       : ""
   }
 
-  <!-- EXPLOSÃO -->
+
+  <!-- ====================================== -->
+  <!-- EXPLOSÃO / IMPACTO -->
+  <!-- ====================================== -->
 
   ${
-    activePoints.length
+    attackPoints.length
       ? `
+
   <circle
-    r="18"
+    r="22"
     fill="url(#impact)"
+    filter="url(#impactGlow)"
     opacity="0"
   >
 
     <animateMotion
       dur="14s"
       repeatCount="indefinite"
-      path="M ${activePoints
-        .map((p) => `${p.x} ${p.y}`)
-        .join(" L ")}"
+      path="${snakePath}"
+      keyPoints="0;1;1;0"
+      keyTimes="0;0.80;0.94;1"
+      calcMode="linear"
     />
+
 
     <animate
       attributeName="opacity"
-      values="0;0.9;0"
-      dur="0.35s"
+      values="
+        0;
+        0.85;
+        0.15;
+        0.9;
+        0
+      "
+      dur="0.45s"
       repeatCount="indefinite"
     />
 
+
     <animate
       attributeName="r"
-      values="7;24;7"
-      dur="0.35s"
+      values="
+        8;
+        26;
+        14
+      "
+      dur="0.45s"
       repeatCount="indefinite"
     />
 
   </circle>
+
   `
       : ""
   }
 
+
+  <!-- ====================================== -->
   <!-- TEXTO INFERIOR -->
+  <!-- ====================================== -->
 
   <text
     x="330"
@@ -393,6 +764,7 @@ async function main() {
   >
     $ git commit -m "keep going"
   </text>
+
 
   <text
     x="330"
@@ -407,9 +779,12 @@ async function main() {
 </svg>
 `;
 
-  fs.mkdirSync(OUTPUT_DIR, {
-    recursive: true,
-  });
+  fs.mkdirSync(
+    OUTPUT_DIR,
+    {
+      recursive: true,
+    }
+  );
 
   fs.writeFileSync(
     OUTPUT_FILE,
@@ -425,7 +800,7 @@ async function main() {
   );
 
   console.log(
-    `Quadrados ativos: ${activePoints.length}`
+    `Quadrados ativos: ${attackPoints.length}`
   );
 }
 
