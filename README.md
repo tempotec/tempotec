@@ -1,16 +1,15 @@
-## Hi there 👋
+<div align="center">
 
-<!--
-**tempotec/tempotec** is a ✨ _special_ ✨ repository because its `README.md` (this file) appears on your GitHub profile.
+# 👋 Olá, eu sou Renan Gomes
 
-Here are some ideas to get you started:
+### Software Developer • AI • Automation • Full Stack
 
-- 🔭 I’m currently working on ...
-- 🌱 I’m currently learning ...
-- 👯 I’m looking to collaborate on ...
-- 🤔 I’m looking for help with ...
-- 💬 Ask me about ...
-- 📫 How to reach me: ...
-- 😄 Pronouns: ...
-- ⚡ Fun fact: ...
--->
+<br>
+
+<img
+  src="https://raw.githubusercontent.com/tempotec/tempotec/output/snakeman-contributions.svg"
+  alt="Snake-Man Contribution Animation"
+  width="100%"
+/>
+
+</div>
