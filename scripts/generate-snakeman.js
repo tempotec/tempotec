@@ -6,6 +6,7 @@ const USERNAME = "tempotec";
 const TOKEN = process.env.GITHUB_TOKEN;
 
 const OUTPUT_DIR = path.join(process.cwd(), "dist");
+
 const OUTPUT_FILE = path.join(
   OUTPUT_DIR,
   "snakeman-contributions.svg"
@@ -21,6 +22,10 @@ if (!TOKEN) {
   console.error("GITHUB_TOKEN não encontrado.");
   process.exit(1);
 }
+
+/* =========================================================
+   GITHUB GRAPHQL
+========================================================= */
 
 function graphqlRequest(query) {
   return new Promise((resolve, reject) => {
@@ -78,6 +83,10 @@ function graphqlRequest(query) {
   });
 }
 
+/* =========================================================
+   UTILS
+========================================================= */
+
 function escapeXml(value) {
   return String(value)
     .replace(/&/g, "&amp;")
@@ -88,101 +97,123 @@ function escapeXml(value) {
 }
 
 /*
-  Constrói um caminho curvo.
+  Cria uma rota de varredura.
 
-  Em vez de:
+  Linha 1:
+  Luffy -------------------->
 
-  --------/\----\/-----
+                            ╮
+                            │
 
-  teremos algo mais parecido com:
+  Linha 2:
+         <------------------╯
 
-  ~~~~~~~╲____╱~~~~~~~
+  Linha 3:
+         ╰------------------>
 
-  As curvas Bézier deixam o ataque
-  mais parecido com o Snake-Man.
+  Isso cria um movimento realmente
+  serpentino sem aquele efeito de ECG.
 */
-function buildSnakePath(points, startPoint) {
-  if (!points.length) {
-    return `M ${startPoint.x} ${startPoint.y}`;
-  }
 
-  const route = [
-    startPoint,
-    ...points,
-  ];
+function buildScanPath({
+  startX,
+  endX,
+  topY,
+  rows,
+  rowStep,
+  armOrigin,
+}) {
+  let d =
+    `M ${armOrigin.x} ${armOrigin.y}`;
 
-  let d = `M ${route[0].x} ${route[0].y}`;
+  /*
+    Entrada suave no grid.
+  */
 
-  for (let i = 1; i < route.length; i++) {
-    const previous =
-      route[i - 1];
+  d += `
+    C
+    ${armOrigin.x + 25} ${armOrigin.y},
+    ${startX - 30} ${topY},
+    ${startX} ${topY}
+  `;
 
-    const current =
-      route[i];
+  for (let row = 0; row < rows; row++) {
+    const y =
+      topY + row * rowStep;
 
-    const dx =
-      current.x - previous.x;
+    const goingRight =
+      row % 2 === 0;
 
-    const dy =
-      current.y - previous.y;
-
-    /*
-      Curva curta e controlada.
-
-      Quanto menor o deslocamento entre
-      quadrados, menor a curva.
-
-      Isso evita o visual de
-      eletrocardiograma.
-    */
-    const curve =
-      Math.min(
-        7,
-        Math.max(
-          2,
-          Math.abs(dx) * 0.08
-        )
-      );
+    const targetX =
+      goingRight
+        ? endX
+        : startX;
 
     /*
-      Pequena alternância para manter
-      a sensação de Snake-Man,
-      sem criar ondas gigantes.
+      Varredura horizontal.
     */
-    const direction =
-      i % 2 === 0 ? 1 : -1;
-
-    const offset =
-      curve * direction;
-
-    const control1X =
-      previous.x +
-      dx * 0.4;
-
-    const control1Y =
-      previous.y +
-      dy * 0.25 +
-      offset;
-
-    const control2X =
-      previous.x +
-      dx * 0.7;
-
-    const control2Y =
-      previous.y +
-      dy * 0.75 -
-      offset;
 
     d += `
-      C
-      ${control1X} ${control1Y},
-      ${control2X} ${control2Y},
-      ${current.x} ${current.y}
+      L
+      ${targetX}
+      ${y}
     `;
+
+    /*
+      Curva para a próxima linha.
+    */
+
+    if (row < rows - 1) {
+      const nextY =
+        y + rowStep;
+
+      const curveX =
+        goingRight
+          ? endX + 18
+          : startX - 18;
+
+      d += `
+        C
+        ${curveX} ${y},
+        ${curveX} ${nextY},
+        ${targetX} ${nextY}
+      `;
+    }
   }
 
   return d;
 }
+
+/*
+  Ordem usada para saber em que momento
+  cada quadrado é atingido.
+
+  linha 0 -> esquerda para direita
+  linha 1 -> direita para esquerda
+  linha 2 -> esquerda para direita
+*/
+
+function getSnakeOrder(
+  weekIndex,
+  weekday,
+  weekCount
+) {
+  if (weekday % 2 === 0) {
+    return (
+      weekday * weekCount +
+      weekIndex
+    );
+  }
+
+  return (
+    weekday * weekCount +
+    (weekCount - 1 - weekIndex)
+  );
+}
+
+/* =========================================================
+   MAIN
+========================================================= */
 
 async function main() {
   const query = `
@@ -214,30 +245,69 @@ async function main() {
       .contributionsCollection
       .contributionCalendar;
 
-  const weeks = calendar.weeks;
+  const weeks =
+    calendar.weeks;
+
   const total =
     calendar.totalContributions;
 
-  /*
-    GRID
-  */
+  /* =======================================================
+     LAYOUT
+  ======================================================= */
 
   const cell = 11;
   const gap = 3;
-  const step = cell + gap;
+
+  const step =
+    cell + gap;
 
   const gridX = 330;
   const gridY = 82;
 
-  /*
-    CANVAS
-  */
-
   const width = 1200;
   const height = 320;
 
+  const weekCount =
+    weeks.length;
+
+  const gridWidth =
+    (weekCount - 1) * step +
+    cell;
+
+  const gridEndX =
+    gridX + gridWidth;
+
+  /*
+    Centro das células.
+  */
+
+  const scanStartX =
+    gridX + cell / 2;
+
+  const scanEndX =
+    gridEndX - cell / 2;
+
+  const scanTopY =
+    gridY + cell / 2;
+
+  /*
+    Ponto de saída do braço no sprite.
+  */
+
+  const armOrigin = {
+    x: 292,
+    y: 164,
+  };
+
+  /*
+    Duração total da animação.
+  */
+
+  const animationDuration = 16;
+
   const levelColors = {
-    NONE: "#161b22",
+    NONE:
+      "#161b22",
 
     FIRST_QUARTILE:
       "#0e4429",
@@ -257,28 +327,18 @@ async function main() {
       .readFileSync(LUFFY_FILE)
       .toString("base64");
 
+  /* =======================================================
+     GRID
+  ======================================================= */
+
   const cells = [];
+  const hitEffects = [];
 
-  /*
-    Guardamos os pontos separados
-    por semana.
-
-    Isso permite montar o trajeto:
-
-    semana 1 ↓
-    semana 2 ↑
-    semana 3 ↓
-    semana 4 ↑
-
-    criando um caminho serpentino.
-  */
-
-  const pointsByWeek = [];
+  const totalScanSlots =
+    weekCount * 7;
 
   weeks.forEach(
     (week, weekIndex) => {
-      const weekPoints = [];
-
       week.contributionDays.forEach(
         (day) => {
           const x =
@@ -289,13 +349,24 @@ async function main() {
             gridY +
             day.weekday * step;
 
+          const centerX =
+            x + cell / 2;
+
+          const centerY =
+            y + cell / 2;
+
           const color =
             levelColors[
               day.contributionLevel
-            ] || levelColors.NONE;
+            ] ||
+            levelColors.NONE;
+
+          const id =
+            `cell-${weekIndex}-${day.weekday}`;
 
           cells.push(`
             <rect
+              id="${id}"
               x="${x}"
               y="${y}"
               width="${cell}"
@@ -303,86 +374,141 @@ async function main() {
               rx="2"
               fill="${color}"
             >
-              <title>
-                ${escapeXml(day.date)}:
-                ${day.contributionCount}
-                contribuições
-              </title>
+              <title>${escapeXml(day.date)}: ${day.contributionCount} contribuições</title>
             </rect>
           `);
+
+          /*
+            Só os quadrados com atividade
+            recebem o efeito de impacto.
+          */
 
           if (
             day.contributionCount > 0
           ) {
-            weekPoints.push({
-              x:
-                x +
-                cell / 2,
+            const order =
+              getSnakeOrder(
+                weekIndex,
+                day.weekday,
+                weekCount
+              );
 
-              y:
-                y +
-                cell / 2,
+            const normalized =
+              order /
+              Math.max(
+                1,
+                totalScanSlots - 1
+              );
 
-              date:
-                day.date,
+            /*
+              O braço usa aproximadamente
+              82% do ciclo para atravessar
+              o grid.
 
-              count:
-                day.contributionCount,
-            });
+              Guardamos o restante para
+              pausa/recolhimento.
+            */
+
+            const impactTime =
+              normalized * 0.82;
+
+            const before =
+              Math.max(
+                0,
+                impactTime - 0.012
+              );
+
+            const after =
+              Math.min(
+                1,
+                impactTime + 0.018
+              );
+
+            hitEffects.push(`
+              <!-- impacto ${day.date} -->
+
+              <rect
+                x="${x - 2}"
+                y="${y - 2}"
+                width="${cell + 4}"
+                height="${cell + 4}"
+                rx="3"
+                fill="#b6ff5c"
+                opacity="0"
+                filter="url(#greenGlow)"
+              >
+
+                <animate
+                  attributeName="opacity"
+                  values="0;0;1;0;0"
+                  keyTimes="0;${before};${impactTime};${after};1"
+                  dur="${animationDuration}s"
+                  repeatCount="indefinite"
+                />
+
+              </rect>
+
+
+              <circle
+                cx="${centerX}"
+                cy="${centerY}"
+                r="4"
+                fill="#ffffff"
+                opacity="0"
+                filter="url(#impactGlow)"
+              >
+
+                <animate
+                  attributeName="opacity"
+                  values="0;0;0.95;0;0"
+                  keyTimes="0;${before};${impactTime};${after};1"
+                  dur="${animationDuration}s"
+                  repeatCount="indefinite"
+                />
+
+                <animate
+                  attributeName="r"
+                  values="4;4;16;4;4"
+                  keyTimes="0;${before};${impactTime};${after};1"
+                  dur="${animationDuration}s"
+                  repeatCount="indefinite"
+                />
+
+              </circle>
+            `);
           }
         }
       );
-
-      pointsByWeek.push(
-        weekPoints
-      );
     }
   );
 
-  /*
-    SNAKE ROUTE
-
-    A ordem alternada evita aquele
-    zig-zag agressivo que parecia
-    gráfico financeiro.
-  */
-
-  const attackPoints = [];
-
-  pointsByWeek.forEach(
-    (weekPoints, index) => {
-      if (!weekPoints.length) {
-        return;
-      }
-
-      const ordered =
-        index % 2 === 0
-          ? [...weekPoints]
-          : [...weekPoints].reverse();
-
-      attackPoints.push(
-        ...ordered
-      );
-    }
-  );
-
-  /*
-    Ponto onde o braço "nasce".
-
-    Fica próximo do punho direito
-    do sprite.
-  */
-
-  const armOrigin = {
-    x: 285,
-    y: 165,
-  };
+  /* =======================================================
+     ROTA DO SNAKE-MAN
+  ======================================================= */
 
   const snakePath =
-    buildSnakePath(
-      attackPoints,
-      armOrigin
-    );
+    buildScanPath({
+      startX:
+        scanStartX,
+
+      endX:
+        scanEndX,
+
+      topY:
+        scanTopY,
+
+      rows:
+        7,
+
+      rowStep:
+        step,
+
+      armOrigin,
+    });
+
+  /* =======================================================
+     SVG
+  ======================================================= */
 
   const svg = `
 <svg
@@ -395,7 +521,7 @@ async function main() {
 
   <defs>
 
-    <!-- BRILHO DO HAKI -->
+    <!-- HAKI -->
 
     <filter
       id="redGlow"
@@ -425,10 +551,10 @@ async function main() {
     </filter>
 
 
-    <!-- BRILHO FORTE -->
+    <!-- VERDE DAS CONTRIBUIÇÕES -->
 
     <filter
-      id="impactGlow"
+      id="greenGlow"
       x="-200%"
       y="-200%"
       width="500%"
@@ -436,7 +562,7 @@ async function main() {
     >
 
       <feGaussianBlur
-        stdDeviation="8"
+        stdDeviation="5"
         result="blur"
       />
 
@@ -457,7 +583,35 @@ async function main() {
 
     <!-- IMPACTO -->
 
-    <radialGradient id="impact">
+    <filter
+      id="impactGlow"
+      x="-300%"
+      y="-300%"
+      width="700%"
+      height="700%"
+    >
+
+      <feGaussianBlur
+        stdDeviation="7"
+        result="blur"
+      />
+
+      <feMerge>
+
+        <feMergeNode
+          in="blur"
+        />
+
+        <feMergeNode
+          in="SourceGraphic"
+        />
+
+      </feMerge>
+
+    </filter>
+
+
+    <radialGradient id="impactGradient">
 
       <stop
         offset="0%"
@@ -465,12 +619,12 @@ async function main() {
       />
 
       <stop
-        offset="20%"
-        stop-color="#ff87b7"
+        offset="25%"
+        stop-color="#ff8bb5"
       />
 
       <stop
-        offset="45%"
+        offset="55%"
         stop-color="#ff1744"
       />
 
@@ -485,9 +639,9 @@ async function main() {
   </defs>
 
 
-  <!-- ====================================== -->
-  <!-- FUNDO -->
-  <!-- ====================================== -->
+  <!-- ===================================================
+       FUNDO
+  ==================================================== -->
 
   <rect
     width="100%"
@@ -497,9 +651,9 @@ async function main() {
   />
 
 
-  <!-- ====================================== -->
-  <!-- TITULO -->
-  <!-- ====================================== -->
+  <!-- ===================================================
+       TITULO
+  ==================================================== -->
 
   <text
     x="330"
@@ -524,9 +678,9 @@ async function main() {
   </text>
 
 
-  <!-- ====================================== -->
-  <!-- GRID DE CONTRIBUIÇÕES -->
-  <!-- ====================================== -->
+  <!-- ===================================================
+       CONTRIBUIÇÕES
+  ==================================================== -->
 
   <g id="contribution-grid">
 
@@ -535,117 +689,133 @@ async function main() {
   </g>
 
 
-  <!-- ====================================== -->
-  <!-- BRAÇO SNAKE-MAN -->
-  <!-- ====================================== -->
+  <!-- ===================================================
+       IMPACTOS NOS QUADRADOS
+  ==================================================== -->
 
-  <!-- aura vermelha -->
+  <g>
 
-  <path
-    d="${snakePath}"
-    fill="none"
-    stroke="#ff1744"
-    stroke-width="22"
-    stroke-linecap="round"
-    stroke-linejoin="round"
-    opacity="0.20"
-    filter="url(#redGlow)"
-    pathLength="1"
-    stroke-dasharray="1"
-    stroke-dashoffset="1"
-  >
+    ${hitEffects.join("\n")}
 
-    <animate
-      attributeName="stroke-dashoffset"
-      values="1;0;0;1"
-      keyTimes="0;0.80;0.94;1"
-      dur="14s"
-      repeatCount="indefinite"
-    />
-
-  </path>
+  </g>
 
 
-  <!-- corpo preto do braço -->
+  <!-- ===================================================
+       BRAÇO SNAKE-MAN
 
-  <path
-    d="${snakePath}"
-    fill="none"
-    stroke="#08090c"
-    stroke-width="14"
-    stroke-linecap="round"
-    stroke-linejoin="round"
-    pathLength="1"
-    stroke-dasharray="1"
-    stroke-dashoffset="1"
-  >
-
-    <animate
-      attributeName="stroke-dashoffset"
-      values="1;0;0;1"
-      keyTimes="0;0.80;0.94;1"
-      dur="14s"
-      repeatCount="indefinite"
-    />
-
-  </path>
+       O caminho inteiro existe,
+       mas apenas um trecho pequeno
+       aparece atrás do punho.
+  ==================================================== -->
 
 
-  <!-- acabamento vermelho do Haki -->
+  <!-- AURA -->
 
   <path
     d="${snakePath}"
     fill="none"
     stroke="#ff1744"
-    stroke-width="5"
+    stroke-width="24"
     stroke-linecap="round"
     stroke-linejoin="round"
+    opacity="0.18"
     filter="url(#redGlow)"
     pathLength="1"
-    stroke-dasharray="1"
-    stroke-dashoffset="1"
+    stroke-dasharray="0.10 0.90"
+    stroke-dashoffset="0.10"
   >
 
     <animate
       attributeName="stroke-dashoffset"
-      values="1;0;0;1"
-      keyTimes="0;0.80;0.94;1"
-      dur="14s"
+      values="0.10;-0.72;-0.72;0.10"
+      keyTimes="0;0.82;0.92;1"
+      dur="${animationDuration}s"
       repeatCount="indefinite"
     />
 
   </path>
 
 
-  <!-- highlight magenta -->
+  <!-- CORPO PRETO -->
 
   <path
     d="${snakePath}"
     fill="none"
-    stroke="#ff70a6"
+    stroke="#07080b"
+    stroke-width="15"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+    pathLength="1"
+    stroke-dasharray="0.10 0.90"
+    stroke-dashoffset="0.10"
+  >
+
+    <animate
+      attributeName="stroke-dashoffset"
+      values="0.10;-0.72;-0.72;0.10"
+      keyTimes="0;0.82;0.92;1"
+      dur="${animationDuration}s"
+      repeatCount="indefinite"
+    />
+
+  </path>
+
+
+  <!-- HAKI -->
+
+  <path
+    d="${snakePath}"
+    fill="none"
+    stroke="#ff1744"
+    stroke-width="6"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+    filter="url(#redGlow)"
+    pathLength="1"
+    stroke-dasharray="0.10 0.90"
+    stroke-dashoffset="0.10"
+  >
+
+    <animate
+      attributeName="stroke-dashoffset"
+      values="0.10;-0.72;-0.72;0.10"
+      keyTimes="0;0.82;0.92;1"
+      dur="${animationDuration}s"
+      repeatCount="indefinite"
+    />
+
+  </path>
+
+
+  <!-- REFLEXO -->
+
+  <path
+    d="${snakePath}"
+    fill="none"
+    stroke="#ff91bc"
     stroke-width="2"
     stroke-linecap="round"
     stroke-linejoin="round"
-    opacity="0.85"
+    opacity="0.95"
     pathLength="1"
-    stroke-dasharray="1"
-    stroke-dashoffset="1"
+    stroke-dasharray="0.10 0.90"
+    stroke-dashoffset="0.10"
   >
 
     <animate
       attributeName="stroke-dashoffset"
-      values="1;0;0;1"
-      keyTimes="0;0.80;0.94;1"
-      dur="14s"
+      values="0.10;-0.72;-0.72;0.10"
+      keyTimes="0;0.82;0.92;1"
+      dur="${animationDuration}s"
       repeatCount="indefinite"
     />
 
   </path>
 
 
-  <!-- ====================================== -->
-  <!-- LUFFY -->
-  <!-- ====================================== -->
+  <!-- ===================================================
+       LUFFY
+  ==================================================== -->
 
   <image
     href="data:image/png;base64,${luffyBase64}"
@@ -657,13 +827,9 @@ async function main() {
   />
 
 
-  <!-- ====================================== -->
-  <!-- PUNHO ANIMADO -->
-  <!-- ====================================== -->
-
-  ${
-    attackPoints.length
-      ? `
+  <!-- ===================================================
+       PUNHO
+  ==================================================== -->
 
   <g
     filter="url(#redGlow)"
@@ -672,112 +838,113 @@ async function main() {
     <!-- aura -->
 
     <circle
-      r="19"
+      r="22"
       fill="#ff1744"
-      opacity="0.25"
+      opacity="0.22"
     />
 
 
-    <!-- punho abstrato -->
+    <!-- punho -->
 
     <circle
-      r="14"
-      fill="#08090c"
+      r="15"
+      fill="#050609"
       stroke="#ff1744"
       stroke-width="5"
     />
 
 
-    <!-- reflexo -->
+    <!-- dedos estilizados -->
+
+    <path
+      d="
+        M -9 -5
+        Q -5 -12 0 -6
+        Q 4 -13 8 -5
+        Q 13 -8 13 -1
+        L 12 7
+        Q 6 14 -2 12
+        Q -11 11 -13 3
+        Z
+      "
+      fill="#09090d"
+      stroke="#ff315f"
+      stroke-width="2"
+    />
+
+
+    <!-- brilho -->
 
     <circle
-      r="5"
-      fill="#ff8fbd"
+      cx="4"
+      cy="-5"
+      r="3"
+      fill="#ff9abd"
     />
 
 
     <circle
-      r="2"
+      cx="5"
+      cy="-6"
+      r="1.2"
       fill="#ffffff"
     />
 
 
     <animateMotion
-      dur="14s"
+      dur="${animationDuration}s"
       repeatCount="indefinite"
       path="${snakePath}"
       keyPoints="0;1;1;0"
-      keyTimes="0;0.80;0.94;1"
+      keyTimes="0;0.82;0.92;1"
       calcMode="linear"
     />
 
   </g>
 
-  `
-      : ""
-  }
 
-
-  <!-- ====================================== -->
-  <!-- EXPLOSÃO / IMPACTO -->
-  <!-- ====================================== -->
-
-  ${
-    attackPoints.length
-      ? `
+  <!-- ===================================================
+       AURA DE IMPACTO NO PUNHO
+  ==================================================== -->
 
   <circle
-    r="22"
-    fill="url(#impact)"
+    r="25"
+    fill="url(#impactGradient)"
+    opacity="0.45"
     filter="url(#impactGlow)"
-    opacity="0"
   >
 
     <animateMotion
-      dur="14s"
+      dur="${animationDuration}s"
       repeatCount="indefinite"
       path="${snakePath}"
       keyPoints="0;1;1;0"
-      keyTimes="0;0.80;0.94;1"
+      keyTimes="0;0.82;0.92;1"
       calcMode="linear"
     />
 
 
     <animate
-      attributeName="opacity"
-      values="
-        0;
-        0.85;
-        0.15;
-        0.9;
-        0
-      "
-      dur="0.45s"
+      attributeName="r"
+      values="15;24;18;28;15"
+      dur="0.40s"
       repeatCount="indefinite"
     />
 
 
     <animate
-      attributeName="r"
-      values="
-        8;
-        26;
-        14
-      "
-      dur="0.45s"
+      attributeName="opacity"
+      values="0.15;0.65;0.20;0.75;0.15"
+      dur="0.40s"
       repeatCount="indefinite"
     />
 
   </circle>
 
-  `
-      : ""
-  }
 
-
-  <!-- ====================================== -->
-  <!-- TEXTO INFERIOR -->
-  <!-- ====================================== -->
+  <!-- ===================================================
+       TEXTO
+  ==================================================== -->
 
   <text
     x="330"
@@ -803,6 +970,10 @@ async function main() {
 </svg>
 `;
 
+  /* =======================================================
+     OUTPUT
+  ======================================================= */
+
   fs.mkdirSync(
     OUTPUT_DIR,
     {
@@ -824,7 +995,11 @@ async function main() {
   );
 
   console.log(
-    `Quadrados ativos: ${attackPoints.length}`
+    `Semanas: ${weekCount}`
+  );
+
+  console.log(
+    `Impactos ativos: ${hitEffects.length}`
   );
 }
 
