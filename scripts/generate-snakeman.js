@@ -10,7 +10,6 @@ const USERNAME = "tempotec";
 const TOKEN = process.env.GITHUB_TOKEN;
 
 const OUTPUT_DIR = path.join(process.cwd(), "dist");
-
 const OUTPUT_FILE = path.join(
   OUTPUT_DIR,
   "snakeman-contributions.svg"
@@ -23,35 +22,27 @@ const LUFFY_SPRITESHEET_FILE = path.join(
 );
 
 /*
-  O código tenta descobrir automaticamente quantos frames
-  existem caso o spritesheet seja uma faixa horizontal.
+  Spritesheet atual:
 
-  Exemplo:
+  FRAME 1 | FRAME 2
+  --------+--------
+  FRAME 3 | FRAME 4
 
-  [FRAME 1][FRAME 2][FRAME 3][FRAME 4]
-
-  Se precisar forçar manualmente:
-
-  Windows PowerShell:
-  $env:LUFFY_FRAME_COUNT="6"
-
-  Linux / GitHub Actions:
-  LUFFY_FRAME_COUNT=6
+  O frame 4 sera usado como pose congelada do soco.
 */
-
-const FORCED_LUFFY_FRAME_COUNT =
-  Number(process.env.LUFFY_FRAME_COUNT || 0);
+const SPRITE_COLUMNS = 2;
+const SPRITE_ROWS = 2;
+const PUNCH_FRAME_INDEX = 3;
 
 if (!TOKEN) {
-  console.error("GITHUB_TOKEN não encontrado.");
+  console.error("GITHUB_TOKEN nao encontrado.");
   process.exit(1);
 }
 
 if (!fs.existsSync(LUFFY_SPRITESHEET_FILE)) {
   console.error(
-    `Spritesheet do Luffy não encontrado: ${LUFFY_SPRITESHEET_FILE}`
+    `Spritesheet nao encontrado: ${LUFFY_SPRITESHEET_FILE}`
   );
-
   process.exit(1);
 }
 
@@ -88,13 +79,7 @@ function graphqlRequest(query) {
 
             if (parsed.errors) {
               console.error(parsed.errors);
-
-              reject(
-                new Error(
-                  "Erro na API GraphQL do GitHub."
-                )
-              );
-
+              reject(new Error("Erro na API GraphQL do GitHub."));
               return;
             }
 
@@ -107,7 +92,6 @@ function graphqlRequest(query) {
     );
 
     req.on("error", reject);
-
     req.write(body);
     req.end();
   });
@@ -122,33 +106,19 @@ function escapeXml(value) {
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
+    .replace(/\"/g, "&quot;")
     .replace(/'/g, "&apos;");
 }
 
-/*
-  Lê somente o cabeçalho do PNG.
-
-  PNG guarda:
-  width  -> bytes 16 até 19
-  height -> bytes 20 até 23
-*/
-
 function getPngSize(buffer) {
   if (!buffer || buffer.length < 24) {
-    throw new Error(
-      "Arquivo PNG inválido ou incompleto."
-    );
+    throw new Error("PNG invalido ou incompleto.");
   }
 
-  const signature = buffer
-    .subarray(0, 8)
-    .toString("hex");
+  const signature = buffer.subarray(0, 8).toString("hex");
 
   if (signature !== "89504e470d0a1a0a") {
-    throw new Error(
-      "O spritesheet informado não parece ser um PNG válido."
-    );
+    throw new Error("O arquivo do Luffy nao parece ser um PNG valido.");
   }
 
   return {
@@ -156,96 +126,6 @@ function getPngSize(buffer) {
     height: buffer.readUInt32BE(20),
   };
 }
-
-/*
-  Detecta quantos frames existem.
-
-  Estratégia padrão:
-
-      larguraSpritesheet / alturaSpritesheet
-
-  Isso funciona quando cada frame é aproximadamente
-  quadrado e todos estão na mesma linha.
-
-  Exemplo:
-
-      4096 x 1024
-      = 4 frames
-
-  Caso os frames não sejam quadrados, use
-  LUFFY_FRAME_COUNT manualmente.
-*/
-
-function detectFrameCount({
-  width,
-  height,
-}) {
-  if (
-    Number.isFinite(FORCED_LUFFY_FRAME_COUNT) &&
-    FORCED_LUFFY_FRAME_COUNT > 0
-  ) {
-    return Math.floor(
-      FORCED_LUFFY_FRAME_COUNT
-    );
-  }
-
-  if (
-    width > height &&
-    width % height === 0
-  ) {
-    return Math.max(
-      1,
-      Math.round(width / height)
-    );
-  }
-
-  return 1;
-}
-
-/*
-  Gera os valores de X usados para deslocar
-  o spritesheet dentro da máscara.
-
-  Se tivermos 4 frames:
-
-      frame 0 -> x
-      frame 1 -> x - width
-      frame 2 -> x - width*2
-      frame 3 -> x - width*3
-*/
-
-function buildSpriteXValues({
-  startX,
-  frameWidth,
-  frameCount,
-}) {
-  const values = [];
-
-  for (
-    let frame = 0;
-    frame < frameCount;
-    frame++
-  ) {
-    values.push(
-      startX - frame * frameWidth
-    );
-  }
-
-  return values.join(";");
-}
-
-/*
-  Rota Snake-Man:
-
-  LUFFY ━━━━━━━━━━━━━━━━━━━👊
-                             ╮
-  👊━━━━━━━━━━━━━━━━━━━━━━━━━╯
-  ╰━━━━━━━━━━━━━━━━━━━━━━━━━👊
-                             ╮
-  👊━━━━━━━━━━━━━━━━━━━━━━━━━╯
-
-  O braço permanece conectado ao Luffy.
-*/
 
 function buildSnakePath({
   armOrigin,
@@ -255,12 +135,7 @@ function buildSnakePath({
   rows,
   rowStep,
 }) {
-  let d =
-    `M ${armOrigin.x} ${armOrigin.y}`;
-
-  /*
-    Saída do braço do corpo.
-  */
+  let d = `M ${armOrigin.x} ${armOrigin.y}`;
 
   d += `
     C
@@ -269,44 +144,16 @@ function buildSnakePath({
       ${startX} ${topY}
   `;
 
-  for (
-    let row = 0;
-    row < rows;
-    row++
-  ) {
-    const y =
-      topY + row * rowStep;
+  for (let row = 0; row < rows; row++) {
+    const y = topY + row * rowStep;
+    const goingRight = row % 2 === 0;
+    const destinationX = goingRight ? endX : startX;
 
-    const goingRight =
-      row % 2 === 0;
-
-    const destinationX =
-      goingRight
-        ? endX
-        : startX;
-
-    /*
-      Atravessa a linha.
-    */
-
-    d += `
-      L
-        ${destinationX}
-        ${y}
-    `;
-
-    /*
-      Curva Snake-Man na lateral.
-    */
+    d += ` L ${destinationX} ${y} `;
 
     if (row < rows - 1) {
-      const nextY =
-        y + rowStep;
-
-      const outsideX =
-        goingRight
-          ? endX + 24
-          : startX - 24;
+      const nextY = y + rowStep;
+      const outsideX = goingRight ? endX + 24 : startX - 24;
 
       d += `
         C
@@ -320,27 +167,137 @@ function buildSnakePath({
   return d;
 }
 
-/*
-  Ordem de cada quadrado durante
-  o movimento Snake-Man.
-*/
-
-function getSnakeOrder(
-  weekIndex,
-  weekday,
-  weekCount
-) {
+function getSnakeOrder(weekIndex, weekday, weekCount) {
   if (weekday % 2 === 0) {
-    return (
-      weekday * weekCount +
-      weekIndex
-    );
+    return weekday * weekCount + weekIndex;
   }
 
-  return (
-    weekday * weekCount +
-    (weekCount - 1 - weekIndex)
-  );
+  return weekday * weekCount + (weekCount - 1 - weekIndex);
+}
+
+function frameOpacityAnimation(frameIndex, animationDuration) {
+  /*
+    Timeline:
+
+    0.00 - 0.05  frame 1
+    0.05 - 0.10  frame 2
+    0.10 - 0.15  frame 3
+    0.15 - 0.85  frame 4 congelado durante todo o golpe
+    0.85 - 0.90  frame 3
+    0.90 - 0.95  frame 2
+    0.95 - 1.00  frame 1
+  */
+
+  const rangesByFrame = {
+    0: [
+      [0.0, 0.05],
+      [0.95, 1.0],
+    ],
+    1: [
+      [0.05, 0.1],
+      [0.9, 0.95],
+    ],
+    2: [
+      [0.1, 0.15],
+      [0.85, 0.9],
+    ],
+    3: [[0.15, 0.85]],
+  };
+
+  const ranges = rangesByFrame[frameIndex] || [];
+  const epsilon = 0.0001;
+  const points = [{ time: 0, value: 0 }];
+
+  for (const [start, end] of ranges) {
+    if (start > 0) {
+      points.push({ time: Math.max(0, start - epsilon), value: 0 });
+    }
+
+    points.push({ time: start, value: 1 });
+    points.push({ time: end, value: 1 });
+
+    if (end < 1) {
+      points.push({ time: Math.min(1, end + epsilon), value: 0 });
+    }
+  }
+
+  points.push({ time: 1, value: 0 });
+  points.sort((a, b) => a.time - b.time);
+
+  const cleaned = [];
+
+  for (const point of points) {
+    const last = cleaned[cleaned.length - 1];
+
+    if (last && Math.abs(last.time - point.time) < 0.000001) {
+      last.value = point.value;
+    } else {
+      cleaned.push({ ...point });
+    }
+  }
+
+  return `
+    <animate
+      attributeName="opacity"
+      values="${cleaned.map((item) => item.value).join(";")}"
+      keyTimes="${cleaned.map((item) => item.time.toFixed(4)).join(";")}"
+      dur="${animationDuration}s"
+      calcMode="discrete"
+      repeatCount="indefinite"
+    />
+  `;
+}
+
+function buildLuffyFrames({
+  luffyBase64,
+  spriteWidth,
+  spriteHeight,
+  animationDuration,
+}) {
+  const frameWidth = spriteWidth / SPRITE_COLUMNS;
+  const frameHeight = spriteHeight / SPRITE_ROWS;
+
+  const displayX = 10;
+  const displayY = 35;
+  const displayWidth = 300;
+  const displayHeight = 250;
+
+  const frames = [];
+
+  for (let frameIndex = 0; frameIndex < SPRITE_COLUMNS * SPRITE_ROWS; frameIndex++) {
+    const column = frameIndex % SPRITE_COLUMNS;
+    const row = Math.floor(frameIndex / SPRITE_COLUMNS);
+
+    const sourceX = column * frameWidth;
+    const sourceY = row * frameHeight;
+
+    frames.push(`
+      <!-- LUFFY FRAME ${frameIndex + 1} -->
+      <svg
+        x="${displayX}"
+        y="${displayY}"
+        width="${displayWidth}"
+        height="${displayHeight}"
+        viewBox="${sourceX} ${sourceY} ${frameWidth} ${frameHeight}"
+        preserveAspectRatio="xMidYMid meet"
+        overflow="hidden"
+        opacity="0"
+      >
+        <image
+          href="data:image/png;base64,${luffyBase64}"
+          x="0"
+          y="0"
+          width="${spriteWidth}"
+          height="${spriteHeight}"
+          preserveAspectRatio="none"
+        />
+
+        ${frameOpacityAnimation(frameIndex, animationDuration)}
+      </svg>
+    `);
+  }
+
+  return frames.join("\n");
 }
 
 /* =========================================================
@@ -354,7 +311,6 @@ async function main() {
         contributionsCollection {
           contributionCalendar {
             totalContributions
-
             weeks {
               contributionDays {
                 contributionCount
@@ -369,54 +325,33 @@ async function main() {
     }
   `;
 
-  const result =
-    await graphqlRequest(query);
+  const result = await graphqlRequest(query);
 
-  if (
-    !result.data ||
-    !result.data.user
-  ) {
-    throw new Error(
-      `Usuário do GitHub não encontrado: ${USERNAME}`
-    );
+  if (!result.data || !result.data.user) {
+    throw new Error(`Usuario do GitHub nao encontrado: ${USERNAME}`);
   }
 
   const calendar =
-    result.data.user
-      .contributionsCollection
-      .contributionCalendar;
+    result.data.user.contributionsCollection.contributionCalendar;
 
-  const weeks =
-    calendar.weeks;
-
-  const total =
-    calendar.totalContributions;
+  const weeks = calendar.weeks;
+  const total = calendar.totalContributions;
 
   /* =======================================================
      SPRITESHEET
   ======================================================= */
 
-  const luffyBuffer =
-    fs.readFileSync(
-      LUFFY_SPRITESHEET_FILE
-    );
+  const luffyBuffer = fs.readFileSync(LUFFY_SPRITESHEET_FILE);
+  const luffyBase64 = luffyBuffer.toString("base64");
+  const spriteSize = getPngSize(luffyBuffer);
 
-  const luffyBase64 =
-    luffyBuffer.toString("base64");
+  const frameWidth = spriteSize.width / SPRITE_COLUMNS;
+  const frameHeight = spriteSize.height / SPRITE_ROWS;
 
-  const spriteSize =
-    getPngSize(luffyBuffer);
-
-  const luffyFrameCount =
-    detectFrameCount(spriteSize);
-
-  console.log(
-    `Spritesheet: ${spriteSize.width}x${spriteSize.height}`
-  );
-
-  console.log(
-    `Frames detectados: ${luffyFrameCount}`
-  );
+  console.log(`Spritesheet: ${spriteSize.width}x${spriteSize.height}`);
+  console.log(`Grade do spritesheet: ${SPRITE_COLUMNS}x${SPRITE_ROWS}`);
+  console.log(`Cada frame: ${frameWidth}x${frameHeight}`);
+  console.log(`Frame congelado do soco: ${PUNCH_FRAME_INDEX + 1}`);
 
   /* =======================================================
      LAYOUT
@@ -424,9 +359,7 @@ async function main() {
 
   const cell = 11;
   const gap = 3;
-
-  const step =
-    cell + gap;
+  const step = cell + gap;
 
   const gridX = 330;
   const gridY = 82;
@@ -434,101 +367,33 @@ async function main() {
   const width = 1200;
   const height = 320;
 
-  const weekCount =
-    weeks.length;
+  const weekCount = weeks.length;
+  const gridWidth = (weekCount - 1) * step + cell;
+  const gridEndX = gridX + gridWidth;
 
-  const gridWidth =
-    (weekCount - 1) * step +
-    cell;
-
-  const gridEndX =
-    gridX + gridWidth;
-
-  const scanStartX =
-    gridX + cell / 2;
-
-  const scanEndX =
-    gridEndX - cell / 2;
-
-  const scanTopY =
-    gridY + cell / 2;
+  const scanStartX = gridX + cell / 2;
+  const scanEndX = gridEndX - cell / 2;
+  const scanTopY = gridY + cell / 2;
 
   /*
-    Janela onde UM frame do Luffy
-    será exibido.
+    Ponto onde o braco nasce visualmente.
+    Ajustaremos fino depois do primeiro preview.
   */
-
-  const luffyX = 10;
-  const luffyY = 35;
-
-  const luffyFrameWidth = 310;
-  const luffyFrameHeight = 260;
-
-  /*
-    A imagem inteira precisa possuir uma largura
-    equivalente a todos os frames juntos.
-
-    Exemplo:
-
-    4 frames x 310 px
-    = 1240 px
-  */
-
-  const renderedSpriteWidth =
-    luffyFrameWidth *
-    luffyFrameCount;
-
-  /*
-    Velocidade da animação DO CORPO.
-
-    0.16s por frame deixa o movimento rápido
-    sem virar uma tremedeira absurda.
-  */
-
-  const spriteFrameDuration =
-    0.16;
-
-  const spriteAnimationDuration =
-    Math.max(
-      0.16,
-      luffyFrameCount *
-        spriteFrameDuration
-    );
-
-  const spriteXValues =
-    buildSpriteXValues({
-      startX: luffyX,
-      frameWidth:
-        luffyFrameWidth,
-      frameCount:
-        luffyFrameCount,
-    });
-
-  /*
-    Ponto de nascimento do braço.
-
-    Continua praticamente no punho/ombro
-    direito do Luffy.
-  */
-
   const armOrigin = {
-    x: 287,
-    y: 158,
+    x: 286,
+    y: 157,
   };
 
-  /*
-    Timeline principal:
+  /* =======================================================
+     TIMELINE
+  ======================================================= */
 
-    0%   braço começa
-    75%  chegou ao fim
-    86%  permanece esticado
-    100% recolheu
-  */
+  const animationDuration = 20;
 
-  const animationDuration = 18;
-
-  const travelEnd = 0.75;
-  const holdEnd = 0.86;
+  const punchStart = 0.15;
+  const travelEnd = 0.72;
+  const holdEnd = 0.75;
+  const returnEnd = 0.85;
 
   const levelColors = {
     NONE: "#161b22",
@@ -539,183 +404,130 @@ async function main() {
   };
 
   /* =======================================================
-     CONTRIBUTION CELLS
+     CONTRIBUTIONS
   ======================================================= */
 
   const cells = [];
   const hitEffects = [];
+  const totalScanSlots = weekCount * 7;
 
-  const totalScanSlots =
-    weekCount * 7;
+  weeks.forEach((week, weekIndex) => {
+    week.contributionDays.forEach((day) => {
+      const x = gridX + weekIndex * step;
+      const y = gridY + day.weekday * step;
+      const centerX = x + cell / 2;
+      const centerY = y + cell / 2;
 
-  weeks.forEach(
-    (week, weekIndex) => {
-      week.contributionDays.forEach(
-        (day) => {
-          const x =
-            gridX +
-            weekIndex * step;
+      const color =
+        levelColors[day.contributionLevel] || levelColors.NONE;
 
-          const y =
-            gridY +
-            day.weekday * step;
+      cells.push(`
+        <rect
+          x="${x}"
+          y="${y}"
+          width="${cell}"
+          height="${cell}"
+          rx="2"
+          fill="${color}"
+        >
+          <title>${escapeXml(day.date)}: ${day.contributionCount} contribuicoes</title>
+        </rect>
+      `);
 
-          const centerX =
-            x + cell / 2;
+      if (day.contributionCount > 0) {
+        const order = getSnakeOrder(
+          weekIndex,
+          day.weekday,
+          weekCount
+        );
 
-          const centerY =
-            y + cell / 2;
+        const normalized =
+          order / Math.max(1, totalScanSlots - 1);
 
-          const color =
-            levelColors[
-              day.contributionLevel
-            ] ||
-            levelColors.NONE;
+        const impactTime =
+          punchStart + normalized * (travelEnd - punchStart);
 
-          cells.push(`
-            <rect
-              x="${x}"
-              y="${y}"
-              width="${cell}"
-              height="${cell}"
-              rx="2"
-              fill="${color}"
-            >
-              <title>${escapeXml(
-                day.date
-              )}: ${day.contributionCount} contribuições</title>
-            </rect>
-          `);
+        const before = Math.max(0, impactTime - 0.006);
+        const after = Math.min(1, impactTime + 0.012);
 
-          /*
-            Só gera impacto visual
-            quando realmente existiu contribuição.
-          */
+        hitEffects.push(`
+          <rect
+            x="${x - 3}"
+            y="${y - 3}"
+            width="${cell + 6}"
+            height="${cell + 6}"
+            rx="4"
+            fill="#8cff66"
+            opacity="0"
+            filter="url(#greenGlow)"
+          >
+            <animate
+              attributeName="opacity"
+              values="0;0;1;0;0"
+              keyTimes="0;${before};${impactTime};${after};1"
+              dur="${animationDuration}s"
+              repeatCount="indefinite"
+            />
+          </rect>
 
-          if (
-            day.contributionCount > 0
-          ) {
-            const order =
-              getSnakeOrder(
-                weekIndex,
-                day.weekday,
-                weekCount
-              );
+          <circle
+            cx="${centerX}"
+            cy="${centerY}"
+            r="3"
+            fill="#ffffff"
+            opacity="0"
+            filter="url(#impactGlow)"
+          >
+            <animate
+              attributeName="opacity"
+              values="0;0;1;0;0"
+              keyTimes="0;${before};${impactTime};${after};1"
+              dur="${animationDuration}s"
+              repeatCount="indefinite"
+            />
 
-            const normalized =
-              order /
-              Math.max(
-                1,
-                totalScanSlots - 1
-              );
-
-            /*
-              Pequeno offset porque o punho primeiro
-              precisa sair do Luffy até alcançar a grade.
-            */
-
-            const gridTravelStart =
-              0.055;
-
-            const usableTravel =
-              travelEnd -
-              gridTravelStart;
-
-            const impactTime =
-              gridTravelStart +
-              normalized *
-                usableTravel;
-
-            const before =
-              Math.max(
-                0,
-                impactTime - 0.008
-              );
-
-            const after =
-              Math.min(
-                1,
-                impactTime + 0.014
-              );
-
-            hitEffects.push(`
-              <!-- HIT: ${escapeXml(
-                day.date
-              )} -->
-
-              <rect
-                x="${x - 3}"
-                y="${y - 3}"
-                width="${cell + 6}"
-                height="${cell + 6}"
-                rx="4"
-                fill="#8cff66"
-                opacity="0"
-                filter="url(#greenGlow)"
-              >
-                <animate
-                  attributeName="opacity"
-                  values="0;0;1;0;0"
-                  keyTimes="0;${before};${impactTime};${after};1"
-                  dur="${animationDuration}s"
-                  repeatCount="indefinite"
-                />
-              </rect>
-
-              <circle
-                cx="${centerX}"
-                cy="${centerY}"
-                r="3"
-                fill="#ffffff"
-                opacity="0"
-                filter="url(#impactGlow)"
-              >
-                <animate
-                  attributeName="opacity"
-                  values="0;0;1;0;0"
-                  keyTimes="0;${before};${impactTime};${after};1"
-                  dur="${animationDuration}s"
-                  repeatCount="indefinite"
-                />
-
-                <animate
-                  attributeName="r"
-                  values="3;3;18;5;3"
-                  keyTimes="0;${before};${impactTime};${after};1"
-                  dur="${animationDuration}s"
-                  repeatCount="indefinite"
-                />
-              </circle>
-            `);
-          }
-        }
-      );
-    }
-  );
+            <animate
+              attributeName="r"
+              values="3;3;18;5;3"
+              keyTimes="0;${before};${impactTime};${after};1"
+              dur="${animationDuration}s"
+              repeatCount="indefinite"
+            />
+          </circle>
+        `);
+      }
+    });
+  });
 
   /* =======================================================
-     SNAKE PATH
+     PATH
   ======================================================= */
 
-  const snakePath =
-    buildSnakePath({
-      armOrigin,
+  const snakePath = buildSnakePath({
+    armOrigin,
+    startX: scanStartX,
+    endX: scanEndX,
+    topY: scanTopY,
+    rows: 7,
+    rowStep: step,
+  });
 
-      startX:
-        scanStartX,
+  const luffyFramesSvg = buildLuffyFrames({
+    luffyBase64,
+    spriteWidth: spriteSize.width,
+    spriteHeight: spriteSize.height,
+    animationDuration,
+  });
 
-      endX:
-        scanEndX,
-
-      topY:
-        scanTopY,
-
-      rows:
-        7,
-
-      rowStep:
-        step,
-    });
+  const armAnimation = `
+    <animate
+      attributeName="stroke-dasharray"
+      values="0 1;0 1;1 0;1 0;0 1;0 1"
+      keyTimes="0;${punchStart};${travelEnd};${holdEnd};${returnEnd};1"
+      dur="${animationDuration}s"
+      repeatCount="indefinite"
+    />
+  `;
 
   /* =======================================================
      SVG
@@ -724,32 +536,11 @@ async function main() {
   const svg = `
 <svg
   xmlns="http://www.w3.org/2000/svg"
-  xmlns:xlink="http://www.w3.org/1999/xlink"
   width="${width}"
   height="${height}"
   viewBox="0 0 ${width} ${height}"
 >
-
   <defs>
-
-    <!-- =================================================
-         CLIP DO SPRITESHEET
-    ================================================== -->
-
-    <clipPath id="luffyFrameClip">
-      <rect
-        x="${luffyX}"
-        y="${luffyY}"
-        width="${luffyFrameWidth}"
-        height="${luffyFrameHeight}"
-      />
-    </clipPath>
-
-
-    <!-- =================================================
-         HAKI GLOW
-    ================================================== -->
-
     <filter
       id="redGlow"
       x="-100%"
@@ -757,21 +548,12 @@ async function main() {
       width="300%"
       height="300%"
     >
-      <feGaussianBlur
-        stdDeviation="5"
-        result="blur"
-      />
-
+      <feGaussianBlur stdDeviation="5" result="blur"/>
       <feMerge>
         <feMergeNode in="blur"/>
         <feMergeNode in="SourceGraphic"/>
       </feMerge>
     </filter>
-
-
-    <!-- =================================================
-         IMPACT GLOW
-    ================================================== -->
 
     <filter
       id="impactGlow"
@@ -780,21 +562,12 @@ async function main() {
       width="700%"
       height="700%"
     >
-      <feGaussianBlur
-        stdDeviation="7"
-        result="blur"
-      />
-
+      <feGaussianBlur stdDeviation="7" result="blur"/>
       <feMerge>
         <feMergeNode in="blur"/>
         <feMergeNode in="SourceGraphic"/>
       </feMerge>
     </filter>
-
-
-    <!-- =================================================
-         CONTRIBUTION GLOW
-    ================================================== -->
 
     <filter
       id="greenGlow"
@@ -803,116 +576,22 @@ async function main() {
       width="700%"
       height="700%"
     >
-      <feGaussianBlur
-        stdDeviation="5"
-        result="blur"
-      />
-
+      <feGaussianBlur stdDeviation="5" result="blur"/>
       <feMerge>
         <feMergeNode in="blur"/>
         <feMergeNode in="SourceGraphic"/>
       </feMerge>
     </filter>
 
-
-    <!-- =================================================
-         LUFFY BODY GLOW
-    ================================================== -->
-
-    <filter
-      id="luffyGlow"
-      x="-50%"
-      y="-50%"
-      width="200%"
-      height="200%"
-    >
-      <feGaussianBlur
-        stdDeviation="3"
-        result="blur"
-      />
-
-      <feColorMatrix
-        in="blur"
-        type="matrix"
-        values="
-          1 0 0 0 0.25
-          0 0.25 0 0 0
-          0 0 0.25 0 0
-          0 0 0 1 0
-        "
-        result="redBlur"
-      />
-
-      <feMerge>
-        <feMergeNode in="redBlur"/>
-        <feMergeNode in="SourceGraphic"/>
-      </feMerge>
-    </filter>
-
-
-    <!-- =================================================
-         FIST AURA
-    ================================================== -->
-
     <radialGradient id="fistAura">
-
-      <stop
-        offset="0%"
-        stop-color="#ffffff"
-      />
-
-      <stop
-        offset="20%"
-        stop-color="#ff9abd"
-      />
-
-      <stop
-        offset="50%"
-        stop-color="#ff1744"
-      />
-
-      <stop
-        offset="100%"
-        stop-color="#ff1744"
-        stop-opacity="0"
-      />
-
+      <stop offset="0%" stop-color="#ffffff"/>
+      <stop offset="20%" stop-color="#ff9abd"/>
+      <stop offset="55%" stop-color="#ff1744"/>
+      <stop offset="100%" stop-color="#ff1744" stop-opacity="0"/>
     </radialGradient>
-
-
-    <!-- =================================================
-         BODY AURA
-    ================================================== -->
-
-    <radialGradient id="bodyAura">
-
-      <stop
-        offset="0%"
-        stop-color="#ff1744"
-        stop-opacity="0.22"
-      />
-
-      <stop
-        offset="60%"
-        stop-color="#e91e63"
-        stop-opacity="0.08"
-      />
-
-      <stop
-        offset="100%"
-        stop-color="#ff1744"
-        stop-opacity="0"
-      />
-
-    </radialGradient>
-
   </defs>
 
-
-  <!-- ===================================================
-       BACKGROUND
-  ==================================================== -->
-
+  <!-- BACKGROUND -->
   <rect
     width="100%"
     height="100%"
@@ -920,11 +599,7 @@ async function main() {
     fill="#0d1117"
   />
 
-
-  <!-- ===================================================
-       HEADER
-  ==================================================== -->
-
+  <!-- HEADER -->
   <text
     x="330"
     y="35"
@@ -932,10 +607,7 @@ async function main() {
     font-family="monospace"
     font-size="19"
     font-weight="bold"
-  >
-    TEMPOTEC
-  </text>
-
+  >TEMPOTEC</text>
 
   <text
     x="330"
@@ -943,330 +615,75 @@ async function main() {
     fill="#8b949e"
     font-family="monospace"
     font-size="11"
-  >
-    ${total} contributions • Gear 4 Snake-Man
-  </text>
+  >${total} contributions • Gear 4 Snake-Man</text>
 
-
-  <!-- ===================================================
-       CONTRIBUTION GRID
-  ==================================================== -->
-
+  <!-- GRID -->
   <g id="contribution-grid">
-
     ${cells.join("\n")}
-
   </g>
 
-
-  <!-- ===================================================
-       HIT EFFECTS
-  ==================================================== -->
-
+  <!-- IMPACTS -->
   <g id="hit-effects">
-
     ${hitEffects.join("\n")}
-
   </g>
 
-
-  <!-- ===================================================
-       SNAKE-MAN ARM
-
-       As camadas são desenhadas antes do Luffy.
-
-       Assim o corpo do Luffy cobre a origem do braço
-       e a conexão parece sair de dentro do personagem.
-  ==================================================== -->
-
-
-  <!-- AURA EXTERNA -->
+  <!-- BRACO: fica atras do Luffy para esconder a origem -->
+  <path
+    d="${snakePath}"
+    fill="none"
+    stroke="#ff1744"
+    stroke-width="30"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+    opacity="0.15"
+    filter="url(#redGlow)"
+    pathLength="1"
+  >${armAnimation}</path>
 
   <path
     d="${snakePath}"
     fill="none"
     stroke="#ff1744"
-    stroke-width="32"
-    stroke-linecap="round"
-    stroke-linejoin="round"
-    opacity="0.14"
-    filter="url(#redGlow)"
-    pathLength="1"
-  >
-
-    <animate
-      attributeName="stroke-dasharray"
-      values="
-        0 1;
-        1 0;
-        1 0;
-        0 1
-      "
-      keyTimes="
-        0;
-        ${travelEnd};
-        ${holdEnd};
-        1
-      "
-      dur="${animationDuration}s"
-      repeatCount="indefinite"
-    />
-
-  </path>
-
-
-  <!-- BORDA EXTERNA -->
-
-  <path
-    d="${snakePath}"
-    fill="none"
-    stroke="#ff1744"
-    stroke-width="21"
+    stroke-width="20"
     stroke-linecap="round"
     stroke-linejoin="round"
     filter="url(#redGlow)"
     pathLength="1"
-  >
-
-    <animate
-      attributeName="stroke-dasharray"
-      values="
-        0 1;
-        1 0;
-        1 0;
-        0 1
-      "
-      keyTimes="
-        0;
-        ${travelEnd};
-        ${holdEnd};
-        1
-      "
-      dur="${animationDuration}s"
-      repeatCount="indefinite"
-    />
-
-  </path>
-
-
-  <!-- CORPO PRETO DO BRAÇO / HAKI -->
+  >${armAnimation}</path>
 
   <path
     d="${snakePath}"
     fill="none"
     stroke="#050609"
-    stroke-width="15"
+    stroke-width="14"
     stroke-linecap="round"
     stroke-linejoin="round"
     pathLength="1"
-  >
-
-    <animate
-      attributeName="stroke-dasharray"
-      values="
-        0 1;
-        1 0;
-        1 0;
-        0 1
-      "
-      keyTimes="
-        0;
-        ${travelEnd};
-        ${holdEnd};
-        1
-      "
-      dur="${animationDuration}s"
-      repeatCount="indefinite"
-    />
-
-  </path>
-
-
-  <!-- HAKI MAGENTA -->
+  >${armAnimation}</path>
 
   <path
     d="${snakePath}"
     fill="none"
-    stroke="#e91e63"
-    stroke-width="5"
+    stroke="#ff8fb7"
+    stroke-width="3"
     stroke-linecap="round"
     stroke-linejoin="round"
-    filter="url(#redGlow)"
+    opacity="0.9"
     pathLength="1"
-  >
+  >${armAnimation}</path>
 
-    <animate
-      attributeName="stroke-dasharray"
-      values="
-        0 1;
-        1 0;
-        1 0;
-        0 1
-      "
-      keyTimes="
-        0;
-        ${travelEnd};
-        ${holdEnd};
-        1
-      "
-      dur="${animationDuration}s"
-      repeatCount="indefinite"
-    />
-
-  </path>
-
-
-  <!-- REFLEXO DO BRAÇO -->
-
-  <path
-    d="${snakePath}"
-    fill="none"
-    stroke="#ff98bf"
-    stroke-width="2"
-    stroke-linecap="round"
-    stroke-linejoin="round"
-    opacity="0.85"
-    pathLength="1"
-  >
-
-    <animate
-      attributeName="stroke-dasharray"
-      values="
-        0 1;
-        1 0;
-        1 0;
-        0 1
-      "
-      keyTimes="
-        0;
-        ${travelEnd};
-        ${holdEnd};
-        1
-      "
-      dur="${animationDuration}s"
-      repeatCount="indefinite"
-    />
-
-  </path>
-
-
-  <!-- ===================================================
-       AURA ATRÁS DO LUFFY
-  ==================================================== -->
-
-  <ellipse
-    cx="160"
-    cy="170"
-    rx="145"
-    ry="125"
-    fill="url(#bodyAura)"
-    opacity="0.35"
-  >
-
-    <animate
-      attributeName="opacity"
-      values="0.18;0.4;0.22;0.48;0.18"
-      dur="1.2s"
-      repeatCount="indefinite"
-    />
-
-    <animate
-      attributeName="rx"
-      values="138;150;141;155;138"
-      dur="1.2s"
-      repeatCount="indefinite"
-    />
-
-    <animate
-      attributeName="ry"
-      values="118;128;121;132;118"
-      dur="1.2s"
-      repeatCount="indefinite"
-    />
-
-  </ellipse>
-
-
-  <!-- ===================================================
-       LUFFY SPRITESHEET
-
-       IMPORTANTE:
-
-       A máscara mostra somente 310x260.
-
-       A imagem inteira se move da direita para esquerda
-       dentro dessa janela.
-
-       Isso cria a animação frame-a-frame.
-  ==================================================== -->
-
-  <g
-    id="luffy"
-    clip-path="url(#luffyFrameClip)"
-    filter="url(#luffyGlow)"
-  >
-
-    <image
-      href="data:image/png;base64,${luffyBase64}"
-      x="${luffyX}"
-      y="${luffyY}"
-      width="${renderedSpriteWidth}"
-      height="${luffyFrameHeight}"
-      preserveAspectRatio="none"
-    >
-
-      ${
-        luffyFrameCount > 1
-          ? `
-      <animate
-        attributeName="x"
-        values="${spriteXValues}"
-        dur="${spriteAnimationDuration}s"
-        calcMode="discrete"
-        repeatCount="indefinite"
-      />
-      `
-          : ""
-      }
-
-    </image>
-
+  <!-- LUFFY: somente UM frame aparece por vez -->
+  <g id="luffy-frame-animation">
+    ${luffyFramesSvg}
   </g>
 
-
-  <!-- ===================================================
-       ANIMATED FIST
-  ==================================================== -->
-
+  <!-- PUNHO -->
   <g
     id="snake-fist"
+    opacity="0"
     filter="url(#redGlow)"
   >
-
-    <!-- aura -->
-
-    <circle
-      r="25"
-      fill="#ff1744"
-      opacity="0.22"
-    >
-      <animate
-        attributeName="r"
-        values="22;27;23;29;22"
-        dur="0.42s"
-        repeatCount="indefinite"
-      />
-
-      <animate
-        attributeName="opacity"
-        values="0.14;0.35;0.18;0.42;0.14"
-        dur="0.42s"
-        repeatCount="indefinite"
-      />
-    </circle>
-
-
-    <!-- palma -->
+    <circle r="27" fill="#ff1744" opacity="0.24"/>
 
     <path
       d="
@@ -1286,28 +703,17 @@ async function main() {
       stroke-width="4"
     />
 
-
-    <!-- dedos -->
-
     <path
       d="
-        M -9 -5
-        Q -7 -11 -3 -7
-
-        M -2 -8
-        Q 0 -14 4 -8
-
-        M 5 -8
-        Q 8 -13 10 -6
+        M -9 -5 Q -7 -11 -3 -7
+        M -2 -8 Q 0 -14 4 -8
+        M 5 -8 Q 8 -13 10 -6
       "
       fill="none"
-      stroke="#ff6f9f"
+      stroke="#ff8fb7"
       stroke-width="2.2"
       stroke-linecap="round"
     />
-
-
-    <!-- brilho -->
 
     <ellipse
       cx="6"
@@ -1324,74 +730,65 @@ async function main() {
       fill="#ffffff"
     />
 
-
-    <!-- movimento pela Snake Path -->
+    <animate
+      attributeName="opacity"
+      values="0;0;1;1;0;0"
+      keyTimes="0;${punchStart};${punchStart + 0.002};${returnEnd - 0.002};${returnEnd};1"
+      dur="${animationDuration}s"
+      calcMode="discrete"
+      repeatCount="indefinite"
+    />
 
     <animateMotion
       dur="${animationDuration}s"
       repeatCount="indefinite"
       path="${snakePath}"
-      keyPoints="0;1;1;0"
-      keyTimes="0;${travelEnd};${holdEnd};1"
+      keyPoints="0;0;1;1;0;0"
+      keyTimes="0;${punchStart};${travelEnd};${holdEnd};${returnEnd};1"
       calcMode="linear"
     />
-
   </g>
 
-
-  <!-- ===================================================
-       PUNCH AURA
-  ==================================================== -->
-
+  <!-- AURA DO PUNHO -->
   <circle
-    r="28"
+    r="30"
     fill="url(#fistAura)"
-    opacity="0.28"
+    opacity="0"
     filter="url(#impactGlow)"
   >
-
-    <animateMotion
+    <animate
+      attributeName="opacity"
+      values="0;0;0.45;0.45;0;0"
+      keyTimes="0;${punchStart};${punchStart + 0.01};${returnEnd - 0.01};${returnEnd};1"
       dur="${animationDuration}s"
       repeatCount="indefinite"
-      path="${snakePath}"
-      keyPoints="0;1;1;0"
-      keyTimes="0;${travelEnd};${holdEnd};1"
-      calcMode="linear"
     />
-
 
     <animate
       attributeName="r"
-      values="20;30;22;34;20"
-      dur="0.42s"
+      values="24;31;25;34;24"
+      dur="0.45s"
       repeatCount="indefinite"
     />
 
-
-    <animate
-      attributeName="opacity"
-      values="0.18;0.55;0.22;0.65;0.18"
-      dur="0.42s"
+    <animateMotion
+      dur="${animationDuration}s"
       repeatCount="indefinite"
+      path="${snakePath}"
+      keyPoints="0;0;1;1;0;0"
+      keyTimes="0;${punchStart};${travelEnd};${holdEnd};${returnEnd};1"
+      calcMode="linear"
     />
-
   </circle>
 
-
-  <!-- ===================================================
-       FOOTER
-  ==================================================== -->
-
+  <!-- FOOTER -->
   <text
     x="330"
     y="260"
     fill="#39d353"
     font-family="monospace"
     font-size="13"
-  >
-    $ git commit -m "keep going"
-  </text>
-
+  >$ git commit -m "keep going"</text>
 
   <text
     x="330"
@@ -1399,89 +796,29 @@ async function main() {
     fill="#8b949e"
     font-family="monospace"
     font-size="11"
-  >
-    Snake-Man is hunting every contribution...
-  </text>
-
+  >Snake-Man is hunting every contribution...</text>
 </svg>
 `;
 
-  /* =======================================================
-     OUTPUT
-  ======================================================= */
-
-  fs.mkdirSync(
-    OUTPUT_DIR,
-    {
-      recursive: true,
-    }
-  );
-
-  fs.writeFileSync(
-    OUTPUT_FILE,
-    svg,
-    "utf8"
-  );
+  fs.mkdirSync(OUTPUT_DIR, { recursive: true });
+  fs.writeFileSync(OUTPUT_FILE, svg, "utf8");
 
   console.log("");
-  console.log(
-    "========================================"
-  );
-
-  console.log(
-    " SNAKE-MAN CONTRIBUTION ANIMATION"
-  );
-
-  console.log(
-    "========================================"
-  );
-
-  console.log(
-    `SVG criado: ${OUTPUT_FILE}`
-  );
-
-  console.log(
-    `Contribuições: ${total}`
-  );
-
-  console.log(
-    `Semanas: ${weekCount}`
-  );
-
-  console.log(
-    `Impactos animados: ${hitEffects.length}`
-  );
-
-  console.log(
-    `Spritesheet: ${spriteSize.width}x${spriteSize.height}`
-  );
-
-  console.log(
-    `Frames do Luffy: ${luffyFrameCount}`
-  );
-
-  console.log(
-    `Duração corpo: ${spriteAnimationDuration.toFixed(
-      2
-    )}s`
-  );
-
-  console.log(
-    `Duração Snake-Man: ${animationDuration}s`
-  );
-
-  console.log(
-    "========================================"
-  );
+  console.log("========================================");
+  console.log(" SNAKE-MAN FRAME-BY-FRAME");
+  console.log("========================================");
+  console.log(`SVG criado: ${OUTPUT_FILE}`);
+  console.log(`Contribuicoes: ${total}`);
+  console.log(`Semanas: ${weekCount}`);
+  console.log(`Impactos: ${hitEffects.length}`);
+  console.log(`Spritesheet: ${spriteSize.width}x${spriteSize.height}`);
+  console.log(`Frame congelado: ${PUNCH_FRAME_INDEX + 1}`);
+  console.log("========================================");
 }
 
 main().catch((error) => {
   console.error("");
-  console.error(
-    "Falha ao gerar Snake-Man:"
-  );
-
+  console.error("Erro ao gerar animacao:");
   console.error(error);
-
   process.exit(1);
 });
