@@ -2,6 +2,10 @@ const fs = require("fs");
 const path = require("path");
 const https = require("https");
 
+/* =========================================================
+   CONFIG
+========================================================= */
+
 const USERNAME = "tempotec";
 const TOKEN = process.env.GITHUB_TOKEN;
 
@@ -18,8 +22,36 @@ const LUFFY_SPRITESHEET_FILE = path.join(
   "luffy-snakeman-spritesheet.png"
 );
 
+/*
+  O código tenta descobrir automaticamente quantos frames
+  existem caso o spritesheet seja uma faixa horizontal.
+
+  Exemplo:
+
+  [FRAME 1][FRAME 2][FRAME 3][FRAME 4]
+
+  Se precisar forçar manualmente:
+
+  Windows PowerShell:
+  $env:LUFFY_FRAME_COUNT="6"
+
+  Linux / GitHub Actions:
+  LUFFY_FRAME_COUNT=6
+*/
+
+const FORCED_LUFFY_FRAME_COUNT =
+  Number(process.env.LUFFY_FRAME_COUNT || 0);
+
 if (!TOKEN) {
   console.error("GITHUB_TOKEN não encontrado.");
+  process.exit(1);
+}
+
+if (!fs.existsSync(LUFFY_SPRITESHEET_FILE)) {
+  console.error(
+    `Spritesheet do Luffy não encontrado: ${LUFFY_SPRITESHEET_FILE}`
+  );
+
   process.exit(1);
 }
 
@@ -95,7 +127,115 @@ function escapeXml(value) {
 }
 
 /*
-  Rota:
+  Lê somente o cabeçalho do PNG.
+
+  PNG guarda:
+  width  -> bytes 16 até 19
+  height -> bytes 20 até 23
+*/
+
+function getPngSize(buffer) {
+  if (!buffer || buffer.length < 24) {
+    throw new Error(
+      "Arquivo PNG inválido ou incompleto."
+    );
+  }
+
+  const signature = buffer
+    .subarray(0, 8)
+    .toString("hex");
+
+  if (signature !== "89504e470d0a1a0a") {
+    throw new Error(
+      "O spritesheet informado não parece ser um PNG válido."
+    );
+  }
+
+  return {
+    width: buffer.readUInt32BE(16),
+    height: buffer.readUInt32BE(20),
+  };
+}
+
+/*
+  Detecta quantos frames existem.
+
+  Estratégia padrão:
+
+      larguraSpritesheet / alturaSpritesheet
+
+  Isso funciona quando cada frame é aproximadamente
+  quadrado e todos estão na mesma linha.
+
+  Exemplo:
+
+      4096 x 1024
+      = 4 frames
+
+  Caso os frames não sejam quadrados, use
+  LUFFY_FRAME_COUNT manualmente.
+*/
+
+function detectFrameCount({
+  width,
+  height,
+}) {
+  if (
+    Number.isFinite(FORCED_LUFFY_FRAME_COUNT) &&
+    FORCED_LUFFY_FRAME_COUNT > 0
+  ) {
+    return Math.floor(
+      FORCED_LUFFY_FRAME_COUNT
+    );
+  }
+
+  if (
+    width > height &&
+    width % height === 0
+  ) {
+    return Math.max(
+      1,
+      Math.round(width / height)
+    );
+  }
+
+  return 1;
+}
+
+/*
+  Gera os valores de X usados para deslocar
+  o spritesheet dentro da máscara.
+
+  Se tivermos 4 frames:
+
+      frame 0 -> x
+      frame 1 -> x - width
+      frame 2 -> x - width*2
+      frame 3 -> x - width*3
+*/
+
+function buildSpriteXValues({
+  startX,
+  frameWidth,
+  frameCount,
+}) {
+  const values = [];
+
+  for (
+    let frame = 0;
+    frame < frameCount;
+    frame++
+  ) {
+    values.push(
+      startX - frame * frameWidth
+    );
+  }
+
+  return values.join(";");
+}
+
+/*
+  Rota Snake-Man:
 
   LUFFY ━━━━━━━━━━━━━━━━━━━👊
                              ╮
@@ -119,18 +259,21 @@ function buildSnakePath({
     `M ${armOrigin.x} ${armOrigin.y}`;
 
   /*
-    Saída inicial do braço.
-    Faz uma curva até o primeiro quadrado.
+    Saída do braço do corpo.
   */
 
   d += `
     C
-    ${armOrigin.x + 35} ${armOrigin.y - 5},
-    ${startX - 35} ${topY},
-    ${startX} ${topY}
+      ${armOrigin.x + 35} ${armOrigin.y - 5},
+      ${startX - 35} ${topY},
+      ${startX} ${topY}
   `;
 
-  for (let row = 0; row < rows; row++) {
+  for (
+    let row = 0;
+    row < rows;
+    row++
+  ) {
     const y =
       topY + row * rowStep;
 
@@ -143,13 +286,13 @@ function buildSnakePath({
         : startX;
 
     /*
-      Braço atravessa a linha.
+      Atravessa a linha.
     */
 
     d += `
       L
-      ${destinationX}
-      ${y}
+        ${destinationX}
+        ${y}
     `;
 
     /*
@@ -167,9 +310,9 @@ function buildSnakePath({
 
       d += `
         C
-        ${outsideX} ${y},
-        ${outsideX} ${nextY},
-        ${destinationX} ${nextY}
+          ${outsideX} ${y},
+          ${outsideX} ${nextY},
+          ${destinationX} ${nextY}
       `;
     }
   }
@@ -178,8 +321,8 @@ function buildSnakePath({
 }
 
 /*
-  Calcula em qual momento cada célula
-  é alcançada pela varredura.
+  Ordem de cada quadrado durante
+  o movimento Snake-Man.
 */
 
 function getSnakeOrder(
@@ -229,6 +372,15 @@ async function main() {
   const result =
     await graphqlRequest(query);
 
+  if (
+    !result.data ||
+    !result.data.user
+  ) {
+    throw new Error(
+      `Usuário do GitHub não encontrado: ${USERNAME}`
+    );
+  }
+
   const calendar =
     result.data.user
       .contributionsCollection
@@ -241,12 +393,40 @@ async function main() {
     calendar.totalContributions;
 
   /* =======================================================
+     SPRITESHEET
+  ======================================================= */
+
+  const luffyBuffer =
+    fs.readFileSync(
+      LUFFY_SPRITESHEET_FILE
+    );
+
+  const luffyBase64 =
+    luffyBuffer.toString("base64");
+
+  const spriteSize =
+    getPngSize(luffyBuffer);
+
+  const luffyFrameCount =
+    detectFrameCount(spriteSize);
+
+  console.log(
+    `Spritesheet: ${spriteSize.width}x${spriteSize.height}`
+  );
+
+  console.log(
+    `Frames detectados: ${luffyFrameCount}`
+  );
+
+  /* =======================================================
      LAYOUT
   ======================================================= */
 
   const cell = 11;
   const gap = 3;
-  const step = cell + gap;
+
+  const step =
+    cell + gap;
 
   const gridX = 330;
   const gridY = 82;
@@ -274,9 +454,61 @@ async function main() {
     gridY + cell / 2;
 
   /*
-    Ajuste fino:
-    ponto onde visualmente o braço
-    sai do sprite do Luffy.
+    Janela onde UM frame do Luffy
+    será exibido.
+  */
+
+  const luffyX = 10;
+  const luffyY = 35;
+
+  const luffyFrameWidth = 310;
+  const luffyFrameHeight = 260;
+
+  /*
+    A imagem inteira precisa possuir uma largura
+    equivalente a todos os frames juntos.
+
+    Exemplo:
+
+    4 frames x 310 px
+    = 1240 px
+  */
+
+  const renderedSpriteWidth =
+    luffyFrameWidth *
+    luffyFrameCount;
+
+  /*
+    Velocidade da animação DO CORPO.
+
+    0.16s por frame deixa o movimento rápido
+    sem virar uma tremedeira absurda.
+  */
+
+  const spriteFrameDuration =
+    0.16;
+
+  const spriteAnimationDuration =
+    Math.max(
+      0.16,
+      luffyFrameCount *
+        spriteFrameDuration
+    );
+
+  const spriteXValues =
+    buildSpriteXValues({
+      startX: luffyX,
+      frameWidth:
+        luffyFrameWidth,
+      frameCount:
+        luffyFrameCount,
+    });
+
+  /*
+    Ponto de nascimento do braço.
+
+    Continua praticamente no punho/ombro
+    direito do Luffy.
   */
 
   const armOrigin = {
@@ -285,10 +517,12 @@ async function main() {
   };
 
   /*
-    0%   -> braço recolhido
-    75%  -> terminou a varredura
-    86%  -> pausa
-    100% -> voltou para o Luffy
+    Timeline principal:
+
+    0%   braço começa
+    75%  chegou ao fim
+    86%  permanece esticado
+    100% recolheu
   */
 
   const animationDuration = 18;
@@ -304,13 +538,8 @@ async function main() {
     FOURTH_QUARTILE: "#39d353",
   };
 
-  const luffyBase64 =
-    fs
-      .readFileSync(LUFFY_FILE)
-      .toString("base64");
-
   /* =======================================================
-     CONTRIBUIÇÕES
+     CONTRIBUTION CELLS
   ======================================================= */
 
   const cells = [];
@@ -352,13 +581,15 @@ async function main() {
               rx="2"
               fill="${color}"
             >
-              <title>${escapeXml(day.date)}: ${day.contributionCount} contribuições</title>
+              <title>${escapeXml(
+                day.date
+              )}: ${day.contributionCount} contribuições</title>
             </rect>
           `);
 
           /*
-            Só explode se realmente houve
-            contribuição naquele dia.
+            Só gera impacto visual
+            quando realmente existiu contribuição.
           */
 
           if (
@@ -378,14 +609,27 @@ async function main() {
                 totalScanSlots - 1
               );
 
+            /*
+              Pequeno offset porque o punho primeiro
+              precisa sair do Luffy até alcançar a grade.
+            */
+
+            const gridTravelStart =
+              0.055;
+
+            const usableTravel =
+              travelEnd -
+              gridTravelStart;
+
             const impactTime =
+              gridTravelStart +
               normalized *
-              travelEnd;
+                usableTravel;
 
             const before =
               Math.max(
                 0,
-                impactTime - 0.009
+                impactTime - 0.008
               );
 
             const after =
@@ -395,7 +639,9 @@ async function main() {
               );
 
             hitEffects.push(`
-              <!-- HIT: ${day.date} -->
+              <!-- HIT: ${escapeXml(
+                day.date
+              )} -->
 
               <rect
                 x="${x - 3}"
@@ -407,7 +653,6 @@ async function main() {
                 opacity="0"
                 filter="url(#greenGlow)"
               >
-
                 <animate
                   attributeName="opacity"
                   values="0;0;1;0;0"
@@ -415,9 +660,7 @@ async function main() {
                   dur="${animationDuration}s"
                   repeatCount="indefinite"
                 />
-
               </rect>
-
 
               <circle
                 cx="${centerX}"
@@ -427,7 +670,6 @@ async function main() {
                 opacity="0"
                 filter="url(#impactGlow)"
               >
-
                 <animate
                   attributeName="opacity"
                   values="0;0;1;0;0"
@@ -443,7 +685,6 @@ async function main() {
                   dur="${animationDuration}s"
                   repeatCount="indefinite"
                 />
-
               </circle>
             `);
           }
@@ -453,7 +694,7 @@ async function main() {
   );
 
   /* =======================================================
-     CAMINHO
+     SNAKE PATH
   ======================================================= */
 
   const snakePath =
@@ -491,9 +732,23 @@ async function main() {
 
   <defs>
 
-    <!-- =============================
+    <!-- =================================================
+         CLIP DO SPRITESHEET
+    ================================================== -->
+
+    <clipPath id="luffyFrameClip">
+      <rect
+        x="${luffyX}"
+        y="${luffyY}"
+        width="${luffyFrameWidth}"
+        height="${luffyFrameHeight}"
+      />
+    </clipPath>
+
+
+    <!-- =================================================
          HAKI GLOW
-    ============================== -->
+    ================================================== -->
 
     <filter
       id="redGlow"
@@ -502,7 +757,6 @@ async function main() {
       width="300%"
       height="300%"
     >
-
       <feGaussianBlur
         stdDeviation="5"
         result="blur"
@@ -512,13 +766,12 @@ async function main() {
         <feMergeNode in="blur"/>
         <feMergeNode in="SourceGraphic"/>
       </feMerge>
-
     </filter>
 
 
-    <!-- =============================
-         IMPACT
-    ============================== -->
+    <!-- =================================================
+         IMPACT GLOW
+    ================================================== -->
 
     <filter
       id="impactGlow"
@@ -527,7 +780,6 @@ async function main() {
       width="700%"
       height="700%"
     >
-
       <feGaussianBlur
         stdDeviation="7"
         result="blur"
@@ -537,9 +789,12 @@ async function main() {
         <feMergeNode in="blur"/>
         <feMergeNode in="SourceGraphic"/>
       </feMerge>
-
     </filter>
 
+
+    <!-- =================================================
+         CONTRIBUTION GLOW
+    ================================================== -->
 
     <filter
       id="greenGlow"
@@ -548,7 +803,6 @@ async function main() {
       width="700%"
       height="700%"
     >
-
       <feGaussianBlur
         stdDeviation="5"
         result="blur"
@@ -558,9 +812,47 @@ async function main() {
         <feMergeNode in="blur"/>
         <feMergeNode in="SourceGraphic"/>
       </feMerge>
-
     </filter>
 
+
+    <!-- =================================================
+         LUFFY BODY GLOW
+    ================================================== -->
+
+    <filter
+      id="luffyGlow"
+      x="-50%"
+      y="-50%"
+      width="200%"
+      height="200%"
+    >
+      <feGaussianBlur
+        stdDeviation="3"
+        result="blur"
+      />
+
+      <feColorMatrix
+        in="blur"
+        type="matrix"
+        values="
+          1 0 0 0 0.25
+          0 0.25 0 0 0
+          0 0 0.25 0 0
+          0 0 0 1 0
+        "
+        result="redBlur"
+      />
+
+      <feMerge>
+        <feMergeNode in="redBlur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+
+
+    <!-- =================================================
+         FIST AURA
+    ================================================== -->
 
     <radialGradient id="fistAura">
 
@@ -577,6 +869,33 @@ async function main() {
       <stop
         offset="50%"
         stop-color="#ff1744"
+      />
+
+      <stop
+        offset="100%"
+        stop-color="#ff1744"
+        stop-opacity="0"
+      />
+
+    </radialGradient>
+
+
+    <!-- =================================================
+         BODY AURA
+    ================================================== -->
+
+    <radialGradient id="bodyAura">
+
+      <stop
+        offset="0%"
+        stop-color="#ff1744"
+        stop-opacity="0.22"
+      />
+
+      <stop
+        offset="60%"
+        stop-color="#e91e63"
+        stop-opacity="0.08"
       />
 
       <stop
@@ -644,7 +963,7 @@ async function main() {
        HIT EFFECTS
   ==================================================== -->
 
-  <g>
+  <g id="hit-effects">
 
     ${hitEffects.join("\n")}
 
@@ -654,13 +973,10 @@ async function main() {
   <!-- ===================================================
        SNAKE-MAN ARM
 
-       IMPORTANTE:
+       As camadas são desenhadas antes do Luffy.
 
-       stroke-dasharray começa zerado.
-
-       Ele cresce DO LUFFY ATÉ O PUNHO.
-
-       Depois recolhe de volta.
+       Assim o corpo do Luffy cobre a origem do braço
+       e a conexão parece sair de dentro do personagem.
   ==================================================== -->
 
 
@@ -670,10 +986,10 @@ async function main() {
     d="${snakePath}"
     fill="none"
     stroke="#ff1744"
-    stroke-width="30"
+    stroke-width="32"
     stroke-linecap="round"
     stroke-linejoin="round"
-    opacity="0.16"
+    opacity="0.14"
     filter="url(#redGlow)"
     pathLength="1"
   >
@@ -699,13 +1015,13 @@ async function main() {
   </path>
 
 
-  <!-- BORDA MAGENTA -->
+  <!-- BORDA EXTERNA -->
 
   <path
     d="${snakePath}"
     fill="none"
     stroke="#ff1744"
-    stroke-width="20"
+    stroke-width="21"
     stroke-linecap="round"
     stroke-linejoin="round"
     filter="url(#redGlow)"
@@ -733,13 +1049,13 @@ async function main() {
   </path>
 
 
-  <!-- CORPO DO BRAÇO -->
+  <!-- CORPO PRETO DO BRAÇO / HAKI -->
 
   <path
     d="${snakePath}"
     fill="none"
     stroke="#050609"
-    stroke-width="14"
+    stroke-width="15"
     stroke-linecap="round"
     stroke-linejoin="round"
     pathLength="1"
@@ -766,7 +1082,7 @@ async function main() {
   </path>
 
 
-  <!-- HAKI -->
+  <!-- HAKI MAGENTA -->
 
   <path
     d="${snakePath}"
@@ -800,7 +1116,7 @@ async function main() {
   </path>
 
 
-  <!-- REFLEXO -->
+  <!-- REFLEXO DO BRAÇO -->
 
   <path
     d="${snakePath}"
@@ -835,35 +1151,119 @@ async function main() {
 
 
   <!-- ===================================================
-       LUFFY
-
-       Vem depois do braço propositalmente
-       para esconder a origem da linha.
+       AURA ATRÁS DO LUFFY
   ==================================================== -->
 
-  <image
-    href="data:image/png;base64,${luffyBase64}"
-    x="10"
-    y="35"
-    width="310"
-    height="260"
-    preserveAspectRatio="xMidYMid meet"
-  />
+  <ellipse
+    cx="160"
+    cy="170"
+    rx="145"
+    ry="125"
+    fill="url(#bodyAura)"
+    opacity="0.35"
+  >
+
+    <animate
+      attributeName="opacity"
+      values="0.18;0.4;0.22;0.48;0.18"
+      dur="1.2s"
+      repeatCount="indefinite"
+    />
+
+    <animate
+      attributeName="rx"
+      values="138;150;141;155;138"
+      dur="1.2s"
+      repeatCount="indefinite"
+    />
+
+    <animate
+      attributeName="ry"
+      values="118;128;121;132;118"
+      dur="1.2s"
+      repeatCount="indefinite"
+    />
+
+  </ellipse>
+
+
+  <!-- ===================================================
+       LUFFY SPRITESHEET
+
+       IMPORTANTE:
+
+       A máscara mostra somente 310x260.
+
+       A imagem inteira se move da direita para esquerda
+       dentro dessa janela.
+
+       Isso cria a animação frame-a-frame.
+  ==================================================== -->
+
+  <g
+    id="luffy"
+    clip-path="url(#luffyFrameClip)"
+    filter="url(#luffyGlow)"
+  >
+
+    <image
+      href="data:image/png;base64,${luffyBase64}"
+      x="${luffyX}"
+      y="${luffyY}"
+      width="${renderedSpriteWidth}"
+      height="${luffyFrameHeight}"
+      preserveAspectRatio="none"
+    >
+
+      ${
+        luffyFrameCount > 1
+          ? `
+      <animate
+        attributeName="x"
+        values="${spriteXValues}"
+        dur="${spriteAnimationDuration}s"
+        calcMode="discrete"
+        repeatCount="indefinite"
+      />
+      `
+          : ""
+      }
+
+    </image>
+
+  </g>
 
 
   <!-- ===================================================
        ANIMATED FIST
   ==================================================== -->
 
-  <g filter="url(#redGlow)">
+  <g
+    id="snake-fist"
+    filter="url(#redGlow)"
+  >
 
     <!-- aura -->
 
     <circle
-      r="24"
+      r="25"
       fill="#ff1744"
       opacity="0.22"
-    />
+    >
+      <animate
+        attributeName="r"
+        values="22;27;23;29;22"
+        dur="0.42s"
+        repeatCount="indefinite"
+      />
+
+      <animate
+        attributeName="opacity"
+        values="0.14;0.35;0.18;0.42;0.14"
+        dur="0.42s"
+        repeatCount="indefinite"
+      />
+    </circle>
 
 
     <!-- palma -->
@@ -924,6 +1324,8 @@ async function main() {
       fill="#ffffff"
     />
 
+
+    <!-- movimento pela Snake Path -->
 
     <animateMotion
       dur="${animationDuration}s"
@@ -1017,7 +1419,21 @@ async function main() {
 
   fs.writeFileSync(
     OUTPUT_FILE,
-    svg
+    svg,
+    "utf8"
+  );
+
+  console.log("");
+  console.log(
+    "========================================"
+  );
+
+  console.log(
+    " SNAKE-MAN CONTRIBUTION ANIMATION"
+  );
+
+  console.log(
+    "========================================"
   );
 
   console.log(
@@ -1035,9 +1451,37 @@ async function main() {
   console.log(
     `Impactos animados: ${hitEffects.length}`
   );
+
+  console.log(
+    `Spritesheet: ${spriteSize.width}x${spriteSize.height}`
+  );
+
+  console.log(
+    `Frames do Luffy: ${luffyFrameCount}`
+  );
+
+  console.log(
+    `Duração corpo: ${spriteAnimationDuration.toFixed(
+      2
+    )}s`
+  );
+
+  console.log(
+    `Duração Snake-Man: ${animationDuration}s`
+  );
+
+  console.log(
+    "========================================"
+  );
 }
 
 main().catch((error) => {
+  console.error("");
+  console.error(
+    "Falha ao gerar Snake-Man:"
+  );
+
   console.error(error);
+
   process.exit(1);
 });
