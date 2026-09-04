@@ -249,7 +249,6 @@ function frameOpacityAnimation(frameIndex, animationDuration) {
 }
 
 function buildLuffyFrames({
-  luffyBase64,
   spriteWidth,
   spriteHeight,
   animationDuration,
@@ -264,7 +263,11 @@ function buildLuffyFrames({
 
   const frames = [];
 
-  for (let frameIndex = 0; frameIndex < SPRITE_COLUMNS * SPRITE_ROWS; frameIndex++) {
+  for (
+    let frameIndex = 0;
+    frameIndex < SPRITE_COLUMNS * SPRITE_ROWS;
+    frameIndex++
+  ) {
     const column = frameIndex % SPRITE_COLUMNS;
     const row = Math.floor(frameIndex / SPRITE_COLUMNS);
 
@@ -283,15 +286,7 @@ function buildLuffyFrames({
         overflow="hidden"
         opacity="0"
       >
-        <image
-          href="data:image/png;base64,${luffyBase64}"
-          x="0"
-          y="0"
-          width="${spriteWidth}"
-          height="${spriteHeight}"
-          preserveAspectRatio="none"
-        />
-
+        <use href="#luffySpriteSheet"/>
         ${frameOpacityAnimation(frameIndex, animationDuration)}
       </svg>
     `);
@@ -375,10 +370,6 @@ async function main() {
   const scanEndX = gridEndX - cell / 2;
   const scanTopY = gridY + cell / 2;
 
-  /*
-    Ponto onde o braco nasce visualmente.
-    Ajustaremos fino depois do primeiro preview.
-  */
   const armOrigin = {
     x: 286,
     y: 157,
@@ -513,7 +504,6 @@ async function main() {
   });
 
   const luffyFramesSvg = buildLuffyFrames({
-    luffyBase64,
     spriteWidth: spriteSize.width,
     spriteHeight: spriteSize.height,
     animationDuration,
@@ -536,11 +526,26 @@ async function main() {
   const svg = `
 <svg
   xmlns="http://www.w3.org/2000/svg"
+  xmlns:xlink="http://www.w3.org/1999/xlink"
   width="${width}"
   height="${height}"
   viewBox="0 0 ${width} ${height}"
 >
   <defs>
+    <!--
+      A imagem pesada existe UMA unica vez no SVG.
+      Os quatro frames abaixo apenas reutilizam essa imagem com <use>.
+    -->
+    <image
+      id="luffySpriteSheet"
+      href="data:image/png;base64,${luffyBase64}"
+      x="0"
+      y="0"
+      width="${spriteSize.width}"
+      height="${spriteSize.height}"
+      preserveAspectRatio="none"
+    />
+
     <filter
       id="redGlow"
       x="-100%"
@@ -813,6 +818,7 @@ async function main() {
   console.log(`Impactos: ${hitEffects.length}`);
   console.log(`Spritesheet: ${spriteSize.width}x${spriteSize.height}`);
   console.log(`Frame congelado: ${PUNCH_FRAME_INDEX + 1}`);
+  console.log("Spritesheet embutido apenas uma vez no SVG.");
   console.log("========================================");
 }
 
