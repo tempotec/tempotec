@@ -12,10 +12,10 @@ const OUTPUT_FILE = path.join(
   "snakeman-contributions.svg"
 );
 
-const LUFFY_FILE = path.join(
+const LUFFY_SPRITESHEET_FILE = path.join(
   process.cwd(),
   "assets",
-  "luffy-snakeman.png"
+  "luffy-snakeman-spritesheet.png"
 );
 
 if (!TOKEN) {
